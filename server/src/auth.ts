@@ -13,16 +13,67 @@ export interface UsuarioLogado {
   pendencias?: boolean
 }
 
-interface Registro {
+// Dados do próprio usuário, devolvidos no login para o front-end
+// sincronizar o cadastro local (nomes iguais aos de src/lib/types.ts)
+export type DadosCadastrais =
+  | { usuario: string }
+  | {
+      cpf: string
+      rg: string
+      telefone: string
+      email: string
+      endereco: { rua: string; numero: string; bairro: string; cep: string }
+      dataCadastro: string
+      consentimentoLgpd: string
+    }
+
+// Colunas de socio_leitor devolvidas ao front-end (login e cadastro)
+export const COLUNAS_CADASTRO_SOCIO = `
+  cpf, rg, telefone, email, endereco_rua, endereco_numero, endereco_bairro, endereco_cep,
+  to_char(data_cadastro, 'YYYY-MM-DD') AS data_cadastro,
+  to_char(consentimento_lgpd, 'YYYY-MM-DD') AS consentimento_lgpd`
+
+export interface ColunasCadastroSocio {
+  cpf?: string | null
+  rg?: string | null
+  telefone?: string | null
+  email?: string | null
+  endereco_rua?: string | null
+  endereco_numero?: string | null
+  endereco_bairro?: string | null
+  endereco_cep?: string | null
+  data_cadastro?: string | null
+  consentimento_lgpd?: string | null
+}
+
+export function cadastroDoSocio(r: ColunasCadastroSocio): DadosCadastrais {
+  return {
+    cpf: r.cpf ?? "",
+    rg: r.rg ?? "",
+    telefone: r.telefone ?? "",
+    email: r.email ?? "",
+    endereco: {
+      rua: r.endereco_rua ?? "",
+      numero: r.endereco_numero ?? "",
+      bairro: r.endereco_bairro ?? "",
+      cep: r.endereco_cep ?? "",
+    },
+    dataCadastro: r.data_cadastro ?? "",
+    consentimentoLgpd: r.consentimento_lgpd ?? "",
+  }
+}
+
+interface Registro extends ColunasCadastroSocio {
   id: string
   nome: string
   senha_hash: string | null
   ativo: boolean
   pendencias?: boolean
+  usuario?: string
 }
 
 export type ResultadoLogin =
-  | { ok: true; token: string; usuario: UsuarioLogado; mensagem: string }
+  | { ok: true; token: string; usuario: UsuarioLogado; cadastro: DadosCadastrais; mensagem: string }
   | { ok: false; status: 400 | 401 | 403; mensagem: string }
 
 // Hash usado quando o usuário não existe, para a resposta levar o mesmo
@@ -30,12 +81,12 @@ export type ResultadoLogin =
 const HASH_FALSO = bcrypt.hashSync("senha-inexistente", 10)
 
 const SQL_ADMIN = `
-  SELECT id, nome, senha_hash, ativo
+  SELECT id, nome, senha_hash, ativo, usuario
     FROM administrador
    WHERE lower(usuario) = lower($1)`
 
 const SQL_SOCIO = (campo: "cpf" | "email") => `
-  SELECT id, nome, senha_hash, ativo, fn_socio_bloqueado(id) AS pendencias
+  SELECT id, nome, senha_hash, ativo, fn_socio_bloqueado(id) AS pendencias, ${COLUNAS_CADASTRO_SOCIO}
     FROM socio_leitor
    WHERE ${campo === "cpf" ? "cpf = $1" : "lower(email) = lower($1)"}
      AND NOT anonimizado`
@@ -75,8 +126,11 @@ export async function autenticar(loginBruto: unknown, senha: unknown): Promise<R
   const usuario: UsuarioLogado = { id: registro.id, nome: registro.nome, perfil }
   if (perfil === "socio") usuario.pendencias = Boolean(registro.pendencias)
 
+  const cadastro: DadosCadastrais =
+    perfil === "admin" ? { usuario: registro.usuario ?? login } : cadastroDoSocio(registro)
+
   const nome = perfil === "socio" ? registro.nome.split(" ")[0] : registro.nome
-  return { ok: true, token: gerarToken(usuario), usuario, mensagem: `Bem-vindo(a), ${nome}.` }
+  return { ok: true, token: gerarToken(usuario), usuario, cadastro, mensagem: `Bem-vindo(a), ${nome}.` }
 }
 
 export function gerarToken(usuario: UsuarioLogado): string {

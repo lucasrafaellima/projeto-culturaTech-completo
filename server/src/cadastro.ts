@@ -1,7 +1,14 @@
 import bcrypt from "bcryptjs"
 import pg from "pg"
 import { pool } from "./db.ts"
-import { gerarToken, type UsuarioLogado } from "./auth.ts"
+import {
+  COLUNAS_CADASTRO_SOCIO,
+  cadastroDoSocio,
+  gerarToken,
+  type ColunasCadastroSocio,
+  type DadosCadastrais,
+  type UsuarioLogado,
+} from "./auth.ts"
 
 // Mesmas regras de validarSocio (src/lib/store.tsx) e de src/lib/utils.ts,
 // mais os limites de tamanho das colunas de socio_leitor
@@ -72,7 +79,7 @@ function validar(corpo: Record<string, unknown>): { erro: string } | { dados: Da
 }
 
 export type ResultadoCadastro =
-  | { ok: true; token: string; usuario: UsuarioLogado; mensagem: string }
+  | { ok: true; token: string; usuario: UsuarioLogado; cadastro: DadosCadastrais; mensagem: string }
   | { ok: false; status: 400 | 409; mensagem: string }
 
 // Cadastro feito pelo próprio visitante: cria o sócio-leitor e já devolve o token
@@ -84,11 +91,11 @@ export async function cadastrarSocio(corpo: unknown): Promise<ResultadoCadastro>
 
   const senhaHash = await bcrypt.hash(d.senha, 10)
   try {
-    const { rows } = await pool.query<{ id: string; nome: string }>(
+    const { rows } = await pool.query<ColunasCadastroSocio & { id: string; nome: string }>(
       `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, endereco_rua, endereco_numero,
                                  endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE)
-       RETURNING id, nome`,
+       RETURNING id, nome, ${COLUNAS_CADASTRO_SOCIO}`,
       [d.nome, d.cpf, d.rg, d.telefone, d.email, d.rua, d.numero, d.bairro, d.cep, senhaHash],
     )
     const usuario: UsuarioLogado = { id: rows[0].id, nome: rows[0].nome, perfil: "socio", pendencias: false }
@@ -96,6 +103,7 @@ export async function cadastrarSocio(corpo: unknown): Promise<ResultadoCadastro>
       ok: true,
       token: gerarToken(usuario),
       usuario,
+      cadastro: cadastroDoSocio(rows[0]),
       mensagem: `Conta criada. Bem-vindo(a), ${usuario.nome.split(" ")[0]}!`,
     }
   } catch (erro) {

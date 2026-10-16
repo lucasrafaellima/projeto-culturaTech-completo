@@ -92,6 +92,7 @@ const novo = {
 const criado = await cadastrar(novo)
 conferir("cadastro válido retorna 201 com token", criado.status === 201 && typeof criado.corpo.token === "string", criado.corpo)
 conferir("novo sócio vem com perfil socio e sem pendências", criado.corpo.usuario?.perfil === "socio" && criado.corpo.usuario?.pendencias === false)
+conferir("cadastro devolve os dados gravados (CPF só com dígitos)", criado.corpo.cadastro?.cpf === cpf && criado.corpo.cadastro?.endereco?.cep === "57300000", criado.corpo.cadastro)
 
 const entraNovo = await login(cpf, "senha-teste")
 conferir("novo sócio consegue entrar pelo CPF", entraNovo.status === 200, entraNovo.corpo)
