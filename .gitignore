@@ -2,4 +2,7 @@ node_modules
 dist
 .verificar
 .env*.local
+.env
+*.pem
 .DS_Store
+*.tsbuildinfo

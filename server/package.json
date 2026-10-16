@@ -1,0 +1,28 @@
+{
+  "name": "culturatech-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "tipos": "tsc --noEmit",
+    "testar-login": "node scripts/testar-login.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22",
+    "@types/pg": "^8.15.4",
+    "typescript": "^5.8.3"
+  }
+}
