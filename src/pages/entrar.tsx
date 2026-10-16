@@ -11,10 +11,14 @@ export function EntrarPage() {
   const [senha, setSenha] = useState("")
   const [mostrar, setMostrar] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
 
-  function enviar(ev: React.FormEvent) {
+  async function enviar(ev: React.FormEvent) {
     ev.preventDefault()
-    const r = entrar(usuario, senha)
+    if (enviando) return
+    setEnviando(true)
+    const r = await entrar(usuario, senha)
+    setEnviando(false)
     if (!r.ok) {
       setErro(r.mensagem)
       return
@@ -101,9 +105,9 @@ export function EntrarPage() {
             )}
           </Campo>
           {erro && <Aviso tipo="erro">{erro}</Aviso>}
-          <Button type="submit" className="w-full">
+          <Button type="submit" className="w-full" disabled={enviando}>
             <LogIn className="h-4 w-4" />
-            Entrar
+            {enviando ? "Entrando..." : "Entrar"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             Esqueceu a senha? Procure o balcão de atendimento para redefini-la.
