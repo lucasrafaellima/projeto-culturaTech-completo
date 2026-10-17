@@ -24,6 +24,7 @@ export function CadastroPage() {
   const [confirmacao, setConfirmacao] = useState("")
   const [mostrar, setMostrar] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
 
   const set = <K extends keyof DadosSocio>(k: K, v: DadosSocio[K]) => {
     setForm({ ...form, [k]: v })
@@ -34,13 +35,16 @@ export function CadastroPage() {
     setErro(null)
   }
 
-  function enviar(ev: React.FormEvent) {
+  async function enviar(ev: React.FormEvent) {
     ev.preventDefault()
+    if (enviando) return
     if ((form.senha ?? "") !== confirmacao) {
       setErro("As senhas não conferem.")
       return
     }
-    const r = cadastrarConta(form)
+    setEnviando(true)
+    const r = await cadastrarConta(form)
+    setEnviando(false)
     if (!r.ok) {
       setErro(r.mensagem)
       return
@@ -181,8 +185,8 @@ export function CadastroPage() {
                 Entrar
               </button>
             </p>
-            <Button type="submit">
-              <UserPlus className="h-4 w-4" /> Criar conta
+            <Button type="submit" disabled={enviando}>
+              <UserPlus className="h-4 w-4" /> {enviando ? "Criando conta..." : "Criar conta"}
             </Button>
           </div>
         </form>

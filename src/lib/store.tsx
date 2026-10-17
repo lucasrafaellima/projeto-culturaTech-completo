@@ -101,6 +101,7 @@ import {
 } from "./persistencia"
 import { garantirArquivosDemo } from "./demo-arquivos"
 import { aguardarAntesDeLer, removerArquivos } from "./arquivos"
+import { cadastroNaApi, loginNaApi, usuarioDoToken, type LoginApi } from "./api"
 import type { LinhaObra, LinhaSocio, ErroLinha } from "./csv"
 
 export type { Resultado } from "./regras"
@@ -169,8 +170,8 @@ interface StoreContextType extends Estado {
   persistenciaOk: boolean
 
   // sessão (RNF02)
-  entrar: (usuario: string, senha: string) => Resultado & { perfil?: PerfilUsuario }
-  cadastrarConta: (dados: DadosSocio) => Resultado
+  entrar: (usuario: string, senha: string) => Promise<Resultado & { perfil?: PerfilUsuario }>
+  cadastrarConta: (dados: DadosSocio) => Promise<Resultado>
   sair: () => void
 
   // seletores
@@ -287,6 +288,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     salvarSessao(sessao)
   }, [sessao])
 
+  // Ao abrir o app, confere se o token salvo ainda vale (expirou, cadastro
+  // desativado no banco...). Sem resposta da API, mantém a sessão.
+  useEffect(() => {
+    const token = sessao.token
+    if (!token) return
+    usuarioDoToken(token).then((r) => {
+      if (r.tipo === "erro" && r.status === 401) {
+        setSessao({ perfil: "publico", usuarioId: null })
+        setAlertaLogin(false)
+      }
+    })
+  }, []) // só na abertura
+
   // Rotina diária (vencimentos, reservas, fila, notificações) + backup automático (RNF05)
   const rodarRotina = useCallback(
     (forcar: boolean): RelatorioRotina | null => {
@@ -353,7 +367,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sessao.perfil === "admin" || (sessao.perfil === "socio" && sessao.usuarioId === socioId)
 
     // -------------------- sessão --------------------
-    const entrar = (usuario: string, senha: string): Resultado & { perfil?: PerfilUsuario } => {
+    // Login pelas contas guardadas no navegador (usado quando a API não responde)
+    const entrarLocal = (usuario: string, senha: string): Resultado & { perfil?: PerfilUsuario } => {
       const u = usuario.trim()
       if (!u || !senha) return falha("Informe usuário e senha.")
       const atual = ref.current
@@ -379,9 +394,94 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return falha("Usuário ou senha incorretos.")
     }
 
-    // Cadastro feito pelo próprio visitante: cria a conta de sócio-leitor e já entra no sistema
-    const cadastrarConta = (d: DadosSocio): Resultado => {
+    // Abre a sessão com a resposta da API (login ou cadastro). O restante do app
+    // ainda usa os dados do navegador, então o cadastro vindo do banco é copiado
+    // para o registro local equivalente (mesmo CPF ou usuário), ou cria um novo.
+    const abrirSessaoDaApi = (
+      dados: LoginApi,
+      senha: string,
+      loginDigitado: string,
+    ): Resultado & { perfil?: PerfilUsuario } => {
+      const { token, usuario: conta, cadastro, mensagem } = dados
+      const u = loginDigitado
+      const atual = ref.current
+      // a senha local acompanha a do banco, para o modo de demonstração continuar valendo
+      const senhaLocal = hashSenha(senha)
+
+      if (conta.perfil === "admin") {
+        const login = "usuario" in cadastro ? cadastro.usuario : u
+        const existente = atual.administradores.find((a) => normalizar(a.usuario) === normalizar(login))
+        const admin: Administrador = { id: existente?.id ?? conta.id, nome: conta.nome, usuario: login, senha: senhaLocal }
+        commit({
+          ...atual,
+          administradores: existente
+            ? atual.administradores.map((a) => (a.id === existente.id ? admin : a))
+            : [...atual.administradores, admin],
+        })
+        setSessao({ perfil: "admin", usuarioId: admin.id, loginEm: agora(), token })
+        return { ...ok(mensagem), perfil: "admin" }
+      }
+
+      if (!("cpf" in cadastro)) return falha("Resposta inesperada do servidor. Tente novamente.")
+      const existente = atual.socios.find((s) => !s.anonimizado && s.cpf === cadastro.cpf)
+      const socio: SocioLeitor = {
+        ...existente, // mantém o que só existe no navegador (ex.: foto)
+        id: existente?.id ?? conta.id,
+        nome: conta.nome,
+        cpf: cadastro.cpf,
+        rg: cadastro.rg,
+        telefone: cadastro.telefone,
+        email: cadastro.email,
+        endereco: cadastro.endereco,
+        senha: senhaLocal,
+        ativo: true,
+        dataCadastro: cadastro.dataCadastro || existente?.dataCadastro || hoje,
+        consentimentoLgpd: cadastro.consentimentoLgpd,
+      }
+      const novo = {
+        ...atual,
+        socios: existente ? atual.socios.map((s) => (s.id === existente.id ? socio : s)) : [...atual.socios, socio],
+      }
+      commit(novo)
+      setSessao({ perfil: "socio", usuarioId: socio.id, loginEm: agora(), token })
+      // RN11: alerta se o banco ou os dados locais apontarem pendências
+      const d = calcDebitos(novo, socio.id, hojeISO())
+      setAlertaLogin(Boolean(conta.pendencias) || d.atrasados.length > 0 || d.multasAbertas.length > 0)
+      return { ...ok(mensagem), perfil: "socio" }
+    }
+
+    const AVISO_SEM_SERVIDOR = "Servidor indisponível: usando os dados de demonstração."
+
+    // Login validado no banco de dados pela API.
+    // Sem resposta da API, cai nas contas locais de demonstração.
+    const entrar = async (usuario: string, senha: string): Promise<Resultado & { perfil?: PerfilUsuario }> => {
+      const u = usuario.trim()
+      if (!u || !senha) return falha("Informe usuário e senha.")
+
+      const r = await loginNaApi(u, senha)
+      if (r.tipo === "indisponivel") {
+        const local = entrarLocal(u, senha)
+        return local.ok ? { ...local, mensagem: `${local.mensagem} ${AVISO_SEM_SERVIDOR}` } : local
+      }
+      if (r.tipo === "erro") return falha(r.mensagem)
+      return abrirSessaoDaApi(r.dados, senha, u)
+    }
+
+    // Cadastro feito pelo próprio visitante: grava o sócio-leitor no banco pela
+    // API e já entra no sistema. Sem resposta da API, cadastra só no navegador.
+    const cadastrarConta = async (d: DadosSocio): Promise<Resultado> => {
       if (sessao.perfil !== "publico") return falha("Você já está conectado. Saia para criar outra conta.")
+      const r = await cadastroNaApi(d)
+      if (r.tipo === "indisponivel") {
+        const local = cadastrarContaLocal(d)
+        return local.ok ? { ...local, mensagem: `${local.mensagem} ${AVISO_SEM_SERVIDOR}` } : local
+      }
+      if (r.tipo === "erro") return falha(r.mensagem)
+      return abrirSessaoDaApi(r.dados, d.senha ?? "", d.cpf)
+    }
+
+    // Cadastro só no navegador (usado quando a API não responde)
+    const cadastrarContaLocal = (d: DadosSocio): Resultado => {
       const atual = ref.current
       const erro = validarSocio(atual, d)
       if (erro) return falha(erro)

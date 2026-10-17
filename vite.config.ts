@@ -13,5 +13,10 @@ export default defineConfig({
   server: {
     host: true,
     allowedHosts: true,
+    // chamadas a /api vão para a API de login (server/)
+    proxy: { "/api": "http://localhost:3333" },
+  },
+  preview: {
+    proxy: { "/api": "http://localhost:3333" },
   },
 })

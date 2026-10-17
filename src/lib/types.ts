@@ -9,6 +9,7 @@ export interface Sessao {
   perfil: PerfilUsuario
   usuarioId: string | null // id do sócio-leitor ou do administrador
   loginEm?: string
+  token?: string // JWT da API; ausente quando o login foi pelas contas locais de demonstração
 }
 
 export interface Administrador {
