@@ -30,6 +30,7 @@ import {
   useAcao,
 } from "@/components/ui"
 import { ImagemArmazenada, SeletorImagens } from "@/components/arquivos"
+import { removerArquivos } from "@/lib/arquivos"
 import { labelPublicacao } from "@/lib/constants"
 import { navegar } from "@/lib/navigation"
 import { exemplarNoAcervo } from "@/lib/regras"
@@ -62,7 +63,7 @@ type Form = Omit<Publicacao, "id">
 const formVazio = (hoje: string): Form => ({ tipo: "noticia", titulo: "", descricao: "", data: hoje, imagemIds: [] })
 
 export function MuralPage() {
-  const { publicacoes, livros, exemplares, perfil, hoje, autoresDoLivro, salvarPublicacao, excluirPublicacao } =
+  const { publicacoes, livros, exemplares, perfil, hoje, sessao, autoresDoLivro, salvarPublicacao, excluirPublicacao } =
     useStore()
   const executar = useAcao()
   const ehAdmin = perfil === "admin"
@@ -86,7 +87,17 @@ export function MuralPage() {
 
   function salvar() {
     if (!editando) return
-    executar(salvarPublicacao(editando.form, editando.id), () => setEditando(null))
+    executar(() => salvarPublicacao(editando.form, editando.id), () => setEditando(null))
+  }
+
+  // cancelamento: descarta as imagens enviadas nesta edição que ainda não foram salvas
+  function cancelarEdicao() {
+    if (editando) {
+      const salvas = publicacoes.find((p) => p.id === editando.id)?.imagemIds ?? []
+      const novas = editando.form.imagemIds.filter((img) => !salvas.includes(img))
+      if (novas.length) removerArquivos(novas, perfil === "admin" ? sessao.token : undefined)
+    }
+    setEditando(null)
   }
 
   return (
@@ -219,7 +230,7 @@ export function MuralPage() {
       {/* Cadastro / edição (RF12) */}
       <Modal
         aberto={!!editando}
-        onFechar={() => setEditando(null)}
+        onFechar={cancelarEdicao}
         titulo={editando?.id ? "Editar publicação" : "Nova publicação no mural"}
       >
         {editando && (
@@ -275,10 +286,11 @@ export function MuralPage() {
               <SeletorImagens
                 ids={editando.form.imagemIds}
                 onChange={(imagemIds) => setEditando({ ...editando, form: { ...editando.form, imagemIds } })}
+                destino="mural"
               />
             </div>
             <Rodape>
-              <Button variante="outline" onClick={() => setEditando(null)}>
+              <Button variante="outline" onClick={cancelarEdicao}>
                 Cancelar
               </Button>
               <Button onClick={salvar}>{editando.id ? "Salvar alterações" : "Publicar"}</Button>
@@ -294,7 +306,7 @@ export function MuralPage() {
         rotuloConfirmar="Excluir"
         perigo
         onCancelar={() => setExcluindo(null)}
-        onConfirmar={() => excluindo && executar(excluirPublicacao(excluindo.id), () => setExcluindo(null))}
+        onConfirmar={() => excluindo && executar(() => excluirPublicacao(excluindo.id), () => setExcluindo(null))}
       />
     </div>
   )

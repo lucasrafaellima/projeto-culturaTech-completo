@@ -20,6 +20,7 @@ export function ImportacaoPage() {
   const [nomeArquivo, setNomeArquivo] = useState("")
   const [previa, setPrevia] = useState<Previa | null>(null)
   const [lendo, setLendo] = useState(false)
+  const [importando, setImportando] = useState(false)
 
   function limpar() {
     setPrevia(null)
@@ -60,14 +61,20 @@ export function ImportacaoPage() {
     }
   }
 
-  function confirmar() {
-    if (!previa || previa.erros.length > 0) return
-    const r = previa.tipo === "obras" ? importarObras(previa.linhas) : importarSocios(previa.linhas)
-    if (!r.ok && r.erros) {
-      setPrevia({ ...previa, erros: r.erros } as Previa)
+  async function confirmar() {
+    if (!previa || previa.erros.length > 0 || importando) return
+    setImportando(true)
+    try {
+      // a importação de obras espera o servidor quando o acervo está no banco
+      const r = previa.tipo === "obras" ? await importarObras(previa.linhas) : importarSocios(previa.linhas)
+      if (!r.ok && r.erros) {
+        setPrevia({ ...previa, erros: r.erros } as Previa)
+      }
+      notificar(r.mensagem, r.ok)
+      if (r.ok) limpar()
+    } finally {
+      setImportando(false)
     }
-    notificar(r.mensagem, r.ok)
-    if (r.ok) limpar()
   }
 
   return (
@@ -96,7 +103,7 @@ export function ImportacaoPage() {
               </Select>
             )}
           </Campo>
-          <Campo rotulo="Arquivo CSV" dica={`Colunas: ${COLUNAS[tipo].join(";")}`}>
+          <Campo rotulo="Arquivo CSV" dica={`Colunas: ${COLUNAS[tipo].join("; ")}`}>
             {(id) => (
               <Input
                 id={id}
@@ -224,8 +231,9 @@ export function ImportacaoPage() {
               <Button variante="outline" onClick={limpar}>
                 Descartar
               </Button>
-              <Button disabled={previa.erros.length > 0 || previa.linhas.length === 0} onClick={confirmar}>
-                <Upload className="h-4 w-4" /> Importar {previa.linhas.length} registro(s)
+              <Button disabled={previa.erros.length > 0 || previa.linhas.length === 0 || importando} onClick={confirmar}>
+                <Upload className="h-4 w-4" />{" "}
+                {importando ? "Importando..." : `Importar ${previa.linhas.length} registro(s)`}
               </Button>
             </Rodape>
           </div>

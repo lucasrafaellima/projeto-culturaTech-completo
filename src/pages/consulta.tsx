@@ -207,7 +207,7 @@ export function ConsultaPage({ livroInicial }: { livroInicial: string | null }) 
       <DetalheObra
         livro={detalhe}
         onFechar={fecharDetalhe}
-        onReservar={(id) => executar(reservarLivro(id))}
+        onReservar={(id) => executar(() => reservarLivro(id))}
         podeReservar={!!socioLogado}
       />
     </div>

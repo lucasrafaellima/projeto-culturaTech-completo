@@ -216,7 +216,7 @@ export function lerSocios(texto: string): ResultadoLeitura<LinhaSocio> {
     const cpf = somenteDigitos(obj.cpf)
     if (cpfs.has(cpf)) problemas.push("CPF repetido no arquivo")
     cpfs.add(cpf)
-    if (!obj.rg) problemas.push("RG vazio")
+    // RG é opcional
     if (!telefoneValido(obj.telefone)) problemas.push(`telefone inválido ("${obj.telefone}")`)
     // e-mail pode faltar em cadastros antigos; se informado, precisa ser válido
     if (obj.email && !emailValido(obj.email)) problemas.push(`e-mail inválido ("${obj.email}")`)

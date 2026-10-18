@@ -106,6 +106,10 @@ conferir("e-mail repetido (outra caixa) retorna 409", emailRepetido.status === 4
 const cpfInvalido = await cadastrar({ ...novo, cpf: "123.456.789-00" })
 conferir("CPF inválido retorna 400", cpfInvalido.status === 400 && cpfInvalido.corpo.mensagem === "CPF inválido.", cpfInvalido.corpo)
 
+const cpfSemRg = cpfAleatorio()
+const semRg = await cadastrar({ ...novo, cpf: cpfSemRg, rg: "", email: `semrg.${cpfSemRg}@example.com` })
+conferir("RG é opcional: cadastro sem RG retorna 201", semRg.status === 201 && semRg.corpo.cadastro?.rg === "", semRg.corpo)
+
 const semConsentimento = await cadastrar({ ...novo, cpf: cpfAleatorio(), consentimentoLgpd: false })
 conferir("sem consentimento LGPD retorna 400", semConsentimento.status === 400 && /LGPD/.test(semConsentimento.corpo.mensagem), semConsentimento.corpo)
 

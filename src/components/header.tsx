@@ -1,4 +1,4 @@
-import { LogIn, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react"
+import { CloudOff, LogIn, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { navegar } from "@/lib/navigation"
 import { labelPerfil } from "@/lib/constants"
@@ -7,7 +7,7 @@ import { Badge, Button, useToast } from "./ui"
 import { ImagemArmazenada } from "./arquivos"
 
 export function Header({ titulo, onAbrirMenu }: { titulo: string; onAbrirMenu: () => void }) {
-  const { perfil, socioLogado, adminLogado, sair } = useStore()
+  const { perfil, socioLogado, adminLogado, sair, sessao } = useStore()
   const { notificar } = useToast()
 
   const nome = socioLogado?.nome ?? adminLogado?.nome ?? null
@@ -32,6 +32,14 @@ export function Header({ titulo, onAbrirMenu }: { titulo: string; onAbrirMenu: (
         </Button>
       ) : (
         <div className="flex items-center gap-2 sm:gap-3">
+          {!sessao.token && (
+            <Badge
+              className="border border-warning/40 bg-warning/15 text-warning"
+              title="Sessão aberta sem o servidor: os dados ficam só neste navegador. Inicie a API e entre novamente."
+            >
+              <CloudOff className="h-3 w-3" /> Modo demonstração
+            </Badge>
+          )}
           <div className="hidden items-center gap-2.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 sm:flex">
             {perfil === "socio" ? (
               <ImagemArmazenada

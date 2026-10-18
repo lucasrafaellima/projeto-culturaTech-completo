@@ -240,7 +240,7 @@ export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
             novo={!editando.id}
             onChange={(form) => setEditando({ ...editando, form })}
             onCancelar={() => setEditando(null)}
-            onSalvar={() => executar(store.salvarSocio(editando.form, editando.id), () => setEditando(null))}
+            onSalvar={() => executar(() => store.salvarSocio(editando.form, editando.id), () => setEditando(null))}
           />
         )}
       </Modal>
@@ -279,7 +279,7 @@ export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
               <Button variante="outline" onClick={() => setSenha(null)}>
                 Cancelar
               </Button>
-              <Button onClick={() => executar(store.redefinirSenhaSocio(senha.socio.id, senha.nova), () => setSenha(null))}>
+              <Button onClick={() => executar(() => store.redefinirSenhaSocio(senha.socio.id, senha.nova), () => setSenha(null))}>
                 Redefinir
               </Button>
             </Rodape>
@@ -301,7 +301,7 @@ export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
         onCancelar={() => setAnonimizando(null)}
         onConfirmar={() =>
           anonimizando &&
-          executar(store.anonimizarSocio(anonimizando.id), () => {
+          executar(() => store.anonimizarSocio(anonimizando.id), () => {
             setAnonimizando(null)
             setDetalheId(null)
           })
@@ -366,7 +366,7 @@ function FichaSocio({
           <Button variante="outline" tamanho="sm" onClick={onSenha}>
             <KeyRound className="h-4 w-4" /> Redefinir senha
           </Button>
-          <Button variante={socio.ativo ? "outline" : "success"} tamanho="sm" onClick={() => executar(alternarAtivoSocio(socio.id))}>
+          <Button variante={socio.ativo ? "outline" : "success"} tamanho="sm" onClick={() => executar(() => alternarAtivoSocio(socio.id))}>
             {socio.ativo ? <Ban className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
             {socio.ativo ? "Inativar" : "Reativar"}
           </Button>
@@ -450,6 +450,7 @@ function FormSocio({
             onChange={(ids) => set("fotoId", ids[0])}
             maximo={1}
             rotulo="Enviar foto"
+            destino="socios"
           />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -459,7 +460,9 @@ function FormSocio({
           <Campo rotulo="CPF">
             {(id) => <Input id={id} inputMode="numeric" value={form.cpf} onChange={(e) => set("cpf", formatCpf(e.target.value))} placeholder="000.000.000-00" />}
           </Campo>
-          <Campo rotulo="RG">{(id) => <Input id={id} value={form.rg} onChange={(e) => set("rg", e.target.value)} />}</Campo>
+          <Campo rotulo="RG" opcional>
+            {(id) => <Input id={id} value={form.rg} onChange={(e) => set("rg", e.target.value)} />}
+          </Campo>
           <Campo rotulo="Telefone">
             {(id) => <Input id={id} inputMode="tel" value={form.telefone} onChange={(e) => set("telefone", formatTelefone(e.target.value))} placeholder="(82) 99999-9999" />}
           </Campo>

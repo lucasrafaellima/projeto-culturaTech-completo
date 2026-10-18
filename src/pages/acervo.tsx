@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import {
   Library,
   PackagePlus,
@@ -14,7 +14,7 @@ import {
   ArrowDown,
   FileText,
 } from "lucide-react"
-import { useStore, type DadosLivro } from "@/lib/store"
+import { useStore, type DadosLivro, type Resultado } from "@/lib/store"
 import {
   Abas,
   Aviso,
@@ -64,7 +64,18 @@ const formVazio = (): DadosLivro => ({
 export function AcervoPage() {
   const store = useStore()
   const { livros, exemplares, desbastes, perfil, autoresDoLivro, exemplaresDoLivro, getLivro, arquivos } = store
-  const executar = useAcao()
+  const notificar = useAcao()
+  // As ações de acervo esperam o servidor: ignora um segundo clique enquanto uma está em andamento
+  const emAndamento = useRef(false)
+  const executar = async (acao: () => Promise<Resultado>, depois?: () => void) => {
+    if (emAndamento.current) return
+    emAndamento.current = true
+    try {
+      notificar(await acao(), depois)
+    } finally {
+      emAndamento.current = false
+    }
+  }
 
   const [aba, setAba] = useState<Aba>("obras")
   const [busca, setBusca] = useState("")
@@ -72,8 +83,13 @@ export function AcervoPage() {
   const [expandido, setExpandido] = useState<string | null>(null)
   const [editandoLivro, setEditandoLivro] = useState<{ id?: string; form: DadosLivro } | null>(null)
   const [excluindoLivro, setExcluindoLivro] = useState<Livro | null>(null)
-  const [novosExemplares, setNovosExemplares] = useState<{ livro: Livro; texto: string } | null>(null)
-  const [editandoEx, setEditandoEx] = useState<{ ex: Exemplar; tombamento: string; status: StatusExemplar } | null>(null)
+  const [novosExemplares, setNovosExemplares] = useState<{ livro: Livro; texto: string; localizacao: string } | null>(null)
+  const [editandoEx, setEditandoEx] = useState<{
+    ex: Exemplar
+    tombamento: string
+    status: StatusExemplar
+    localizacao: string
+  } | null>(null)
   const [excluindoEx, setExcluindoEx] = useState<Exemplar | null>(null)
   const [desbastando, setDesbastando] = useState<{ ex: Exemplar; relatorio: string } | null>(null)
 
@@ -99,7 +115,7 @@ export function AcervoPage() {
 
   function salvarLivro() {
     if (!editandoLivro) return
-    executar(store.salvarLivro(editandoLivro.form, editandoLivro.id), () => setEditandoLivro(null))
+    executar(() => store.salvarLivro(editandoLivro.form, editandoLivro.id), () => setEditandoLivro(null))
   }
 
   return (
@@ -200,7 +216,7 @@ export function AcervoPage() {
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-medium">Exemplares</p>
                         <div className="flex flex-wrap gap-2">
-                          <Button variante="outline" tamanho="sm" onClick={() => setNovosExemplares({ livro, texto: "" })}>
+                          <Button variante="outline" tamanho="sm" onClick={() => setNovosExemplares({ livro, texto: "", localizacao: "" })}>
                             <PackagePlus className="h-4 w-4" /> Adicionar exemplares
                           </Button>
                           <Button
@@ -226,6 +242,7 @@ export function AcervoPage() {
                             <tr className="border-b border-border text-left text-muted-foreground">
                               <th className="pb-2 font-medium">Tombamento</th>
                               <th className="pb-2 font-medium">Código de identificação (UUID)</th>
+                              <th className="pb-2 font-medium">Localização</th>
                               <th className="pb-2 font-medium">Status</th>
                               <th className="pb-2 text-right font-medium">Ações</th>
                             </tr>
@@ -235,6 +252,9 @@ export function AcervoPage() {
                               <tr key={ex.id}>
                                 <td className="py-2.5 font-mono text-xs">{ex.tombamento}</td>
                                 <td className="py-2.5 font-mono text-xs text-muted-foreground">{ex.id}</td>
+                                <td className="py-2.5 text-xs">
+                                  {ex.localizacao ?? <span className="text-muted-foreground">Seção {livro.secao}</span>}
+                                </td>
                                 <td className="py-2.5">
                                   <StatusBadge status={ex.status} perfil={perfil} />
                                   {emprestimoAtivoDoExemplar(store, ex.id) && (
@@ -246,7 +266,9 @@ export function AcervoPage() {
                                     <Button
                                       variante="ghost"
                                       tamanho="sm"
-                                      onClick={() => setEditandoEx({ ex, tombamento: ex.tombamento, status: ex.status })}
+                                      onClick={() =>
+                                        setEditandoEx({ ex, tombamento: ex.tombamento, status: ex.status, localizacao: ex.localizacao ?? "" })
+                                      }
                                     >
                                       <Pencil className="h-4 w-4" /> Status
                                     </Button>
@@ -269,7 +291,7 @@ export function AcervoPage() {
                             ))}
                             {exs.length === 0 && (
                               <tr>
-                                <td colSpan={4} className="py-3 text-muted-foreground">
+                                <td colSpan={5} className="py-3 text-muted-foreground">
                                   Nenhum exemplar no acervo.
                                 </td>
                               </tr>
@@ -327,6 +349,7 @@ export function AcervoPage() {
                   </p>
                   <span className="text-xs text-muted-foreground">
                     {formatDate(d.data)} · era {labelStatus[d.statusAnterior].toLowerCase()}
+                    {d.admin && <> · registrado por {d.admin}</>}
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground text-pretty">{d.relatorio}</p>
@@ -373,14 +396,35 @@ export function AcervoPage() {
                 />
               )}
             </Campo>
+            <Campo
+              rotulo="Localização"
+              opcional
+              dica={`Onde as cópias ficam. Sem localização, vale a seção da obra (Seção ${novosExemplares.livro.secao}).`}
+            >
+              {(id) => (
+                <Input
+                  id={id}
+                  maxLength={80}
+                  value={novosExemplares.localizacao}
+                  onChange={(e) => setNovosExemplares({ ...novosExemplares, localizacao: e.target.value })}
+                  placeholder="Ex.: Estante 3, prateleira B"
+                />
+              )}
+            </Campo>
             <Rodape>
               <Button variante="outline" onClick={() => setNovosExemplares(null)}>
                 Cancelar
               </Button>
               <Button
                 onClick={() =>
-                  executar(store.adicionarExemplares(novosExemplares.livro.id, novosExemplares.texto.split(/[\n,;]/)), () =>
-                    setNovosExemplares(null),
+                  executar(
+                    () =>
+                      store.adicionarExemplares(
+                        novosExemplares.livro.id,
+                        novosExemplares.texto.split(/[\n,;]/),
+                        novosExemplares.localizacao,
+                      ),
+                    () => setNovosExemplares(null),
                   )
                 }
               >
@@ -399,6 +443,17 @@ export function AcervoPage() {
             <Campo rotulo="Código de tombamento">
               {(id) => (
                 <Input id={id} value={editandoEx.tombamento} onChange={(e) => setEditandoEx({ ...editandoEx, tombamento: e.target.value })} />
+              )}
+            </Campo>
+            <Campo rotulo="Localização" opcional dica="Onde a cópia fica. Sem localização, vale a seção da obra.">
+              {(id) => (
+                <Input
+                  id={id}
+                  maxLength={80}
+                  value={editandoEx.localizacao}
+                  onChange={(e) => setEditandoEx({ ...editandoEx, localizacao: e.target.value })}
+                  placeholder="Ex.: Estante 3, prateleira B"
+                />
               )}
             </Campo>
             <Campo
@@ -426,7 +481,12 @@ export function AcervoPage() {
               <Button
                 onClick={() =>
                   executar(
-                    store.editarExemplar(editandoEx.ex.id, { tombamento: editandoEx.tombamento, status: editandoEx.status }),
+                    () =>
+                      store.editarExemplar(editandoEx.ex.id, {
+                        tombamento: editandoEx.tombamento,
+                        status: editandoEx.status,
+                        localizacao: editandoEx.localizacao,
+                      }),
                     () => setEditandoEx(null),
                   )
                 }
@@ -470,7 +530,7 @@ export function AcervoPage() {
               </Button>
               <Button
                 variante="danger"
-                onClick={() => executar(store.desbastarExemplar(desbastando.ex.id, desbastando.relatorio), () => setDesbastando(null))}
+                onClick={() => executar(() => store.desbastarExemplar(desbastando.ex.id, desbastando.relatorio), () => setDesbastando(null))}
               >
                 <Scissors className="h-4 w-4" /> Confirmar desbaste
               </Button>
@@ -486,7 +546,7 @@ export function AcervoPage() {
         rotuloConfirmar="Excluir"
         perigo
         onCancelar={() => setExcluindoLivro(null)}
-        onConfirmar={() => excluindoLivro && executar(store.excluirLivro(excluindoLivro.id), () => setExcluindoLivro(null))}
+        onConfirmar={() => excluindoLivro && executar(() => store.excluirLivro(excluindoLivro.id), () => setExcluindoLivro(null))}
       />
       <Confirmar
         aberto={!!excluindoEx}
@@ -495,7 +555,7 @@ export function AcervoPage() {
         rotuloConfirmar="Excluir"
         perigo
         onCancelar={() => setExcluindoEx(null)}
-        onConfirmar={() => excluindoEx && executar(store.excluirExemplar(excluindoEx.id), () => setExcluindoEx(null))}
+        onConfirmar={() => excluindoEx && executar(() => store.excluirExemplar(excluindoEx.id), () => setExcluindoEx(null))}
       />
     </div>
   )

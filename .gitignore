@@ -6,3 +6,5 @@ dist
 *.pem
 .DS_Store
 *.tsbuildinfo
+CLAUDE.md
+server/uploads

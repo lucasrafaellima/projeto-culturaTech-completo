@@ -219,7 +219,7 @@ export function CirculacaoPage() {
                                     ? "Limite de renovações atingido (RN17)"
                                     : "Renovar por mais 14 dias"
                               }
-                              onClick={() => executar(store.renovarEmprestimo(emp.id))}
+                              onClick={() => executar(() => store.renovarEmprestimo(emp.id))}
                             >
                               <RefreshCw className="h-4 w-4" /> Renovar
                             </Button>
@@ -295,7 +295,7 @@ export function CirculacaoPage() {
                         </Button>
                       )}
                       {(m.status === "pendente" || m.status === "em_analise") && (
-                        <Button variante="success" tamanho="sm" onClick={() => executar(store.quitarMulta(m.id))}>
+                        <Button variante="success" tamanho="sm" onClick={() => executar(() => store.quitarMulta(m.id))}>
                           Registrar pagamento
                         </Button>
                       )}
@@ -334,10 +334,10 @@ export function CirculacaoPage() {
                     <BadgeReserva r={r} />
                     {r.status === "ativa" && (
                       <>
-                        <Button tamanho="sm" onClick={() => executar(store.realizarEmprestimo(r.socioId, r.exemplarId))}>
+                        <Button tamanho="sm" onClick={() => executar(() => store.realizarEmprestimo(r.socioId, r.exemplarId))}>
                           <BookCheck className="h-4 w-4" /> Registrar retirada
                         </Button>
-                        <Button variante="ghost" tamanho="sm" onClick={() => executar(store.cancelarReserva(r.id))}>
+                        <Button variante="ghost" tamanho="sm" onClick={() => executar(() => store.cancelarReserva(r.id))}>
                           Cancelar
                         </Button>
                       </>
@@ -388,7 +388,7 @@ export function CirculacaoPage() {
         key={devolvendo?.id ?? "nenhum"}
         emp={devolvendo}
         onFechar={() => setDevolvendo(null)}
-        onConfirmar={(dano) => devolvendo && executar(store.devolverEmprestimo(devolvendo.id, dano), () => setDevolvendo(null))}
+        onConfirmar={(dano) => devolvendo && executar(() => store.devolverEmprestimo(devolvendo.id, dano), () => setDevolvendo(null))}
       />
 
       <Modal aberto={!!alterando} onFechar={() => setAlterando(null)} titulo="Alterar empréstimo">
@@ -416,7 +416,7 @@ export function CirculacaoPage() {
               <Button variante="outline" onClick={() => setAlterando(null)}>
                 Cancelar
               </Button>
-              <Button onClick={() => executar(store.alterarEmprestimo(alterando.emp.id, alterando.data, alterando.motivo), () => setAlterando(null))}>
+              <Button onClick={() => executar(() => store.alterarEmprestimo(alterando.emp.id, alterando.data, alterando.motivo), () => setAlterando(null))}>
                 Salvar alteração
               </Button>
             </Rodape>
@@ -438,7 +438,7 @@ export function CirculacaoPage() {
               <Button variante="outline" onClick={() => setCancelando(null)}>
                 Voltar
               </Button>
-              <Button variante="danger" onClick={() => executar(store.cancelarEmprestimo(cancelando.emp.id, cancelando.motivo), () => setCancelando(null))}>
+              <Button variante="danger" onClick={() => executar(() => store.cancelarEmprestimo(cancelando.emp.id, cancelando.motivo), () => setCancelando(null))}>
                 Cancelar empréstimo
               </Button>
             </Rodape>
@@ -463,13 +463,13 @@ export function CirculacaoPage() {
             <Rodape>
               <Button
                 variante="danger"
-                onClick={() => executar(store.julgarJustificativa(julgando.m.id, "indeferido", julgando.parecer), () => setJulgando(null))}
+                onClick={() => executar(() => store.julgarJustificativa(julgando.m.id, "indeferido", julgando.parecer), () => setJulgando(null))}
               >
                 Indeferir (manter dívida)
               </Button>
               <Button
                 variante="success"
-                onClick={() => executar(store.julgarJustificativa(julgando.m.id, "deferido", julgando.parecer), () => setJulgando(null))}
+                onClick={() => executar(() => store.julgarJustificativa(julgando.m.id, "deferido", julgando.parecer), () => setJulgando(null))}
               >
                 Deferir (abonar multa)
               </Button>
@@ -501,7 +501,7 @@ export function CirculacaoPage() {
               </Button>
               <Button
                 onClick={() =>
-                  executar(store.registrarJustificativa(justificandoBalcao.m.id, justificandoBalcao.texto), () => setJustificandoBalcao(null))
+                  executar(() => store.registrarJustificativa(justificandoBalcao.m.id, justificandoBalcao.texto), () => setJustificandoBalcao(null))
                 }
               >
                 Registrar
@@ -678,7 +678,7 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
           </Button>
           <Button
             disabled={!socioId || !exemplarId}
-            onClick={() => executar(store.realizarEmprestimo(socioId, exemplarId), fechar)}
+            onClick={() => executar(() => store.realizarEmprestimo(socioId, exemplarId), fechar)}
           >
             <BookUp className="h-4 w-4" /> Confirmar empréstimo
           </Button>
@@ -697,7 +697,9 @@ function Devolucao({
   onFechar: () => void
   onConfirmar: (dano?: DadosDano) => void
 }) {
-  const { hoje, tituloDoExemplar, getSocio } = useStore()
+  const { hoje, tituloDoExemplar, getSocio, sessao } = useStore()
+  // conectado pela API: as imagens do dano vão para o servidor (S3)
+  const token = sessao.perfil === "admin" ? sessao.token : undefined
   const [comDano, setComDano] = useState(false)
   const [relatorio, setRelatorio] = useState("")
   const [imagens, setImagens] = useState<string[]>([])
@@ -708,7 +710,7 @@ function Devolucao({
 
   // cancelamento: descarta as imagens já comprimidas e armazenadas
   function fechar() {
-    removerArquivos(imagens)
+    removerArquivos(imagens, token)
     onFechar()
   }
 
@@ -761,7 +763,7 @@ function Devolucao({
             </Campo>
             <div>
               <p className="mb-1.5 text-sm font-medium">Imagens comprobatórias</p>
-              <SeletorImagens ids={imagens} onChange={setImagens} />
+              <SeletorImagens ids={imagens} onChange={setImagens} destino="danos" />
             </div>
             <Campo rotulo="Valor da multa pelo dano (R$)" dica="O exemplar passa ao status “Danificado” (RN12 / RN13).">
               {(id) => <Input id={id} type="number" min="0" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} className="sm:w-40" />}
@@ -776,7 +778,7 @@ function Devolucao({
           <Button
             onClick={() => {
               if (!comDano && imagens.length) {
-                removerArquivos(imagens)
+                removerArquivos(imagens, token)
                 setImagens([])
               }
               onConfirmar(comDano ? { relatorio, imagemIds: imagens, valor: Number(valor.replace(",", ".")) } : undefined)

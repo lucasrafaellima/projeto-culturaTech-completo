@@ -246,7 +246,7 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
         <UploadModal
           aberto={modalUpload}
           onFechar={() => setModalUpload(false)}
-          onSalvar={(arq, id) => executar(adicionarArquivo(arq, id), () => setModalUpload(false))}
+          onSalvar={(arq, id) => executar(() => adicionarArquivo(arq, id), () => setModalUpload(false))}
         />
       )}
 
@@ -276,7 +276,7 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
               </Button>
               <Button
                 onClick={() =>
-                  executar(salvarPasta({ nome: pastaEdit.nome, descricao: pastaEdit.descricao }, pastaEdit.id), () =>
+                  executar(() => salvarPasta({ nome: pastaEdit.nome, descricao: pastaEdit.descricao }, pastaEdit.id), () =>
                     setPastaEdit(null),
                   )
                 }
@@ -295,7 +295,7 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
         rotuloConfirmar="Remover"
         perigo
         onCancelar={() => setExcluindo(null)}
-        onConfirmar={() => excluindo && executar(excluirArquivo(excluindo.id), () => setExcluindo(null))}
+        onConfirmar={() => excluindo && executar(() => excluirArquivo(excluindo.id), () => setExcluindo(null))}
       />
       <Confirmar
         aberto={!!excluindoPasta}
@@ -304,7 +304,7 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
         rotuloConfirmar="Excluir"
         perigo
         onCancelar={() => setExcluindoPasta(null)}
-        onConfirmar={() => excluindoPasta && executar(excluirPasta(excluindoPasta.id), () => setExcluindoPasta(null))}
+        onConfirmar={() => excluindoPasta && executar(() => excluirPasta(excluindoPasta.id), () => setExcluindoPasta(null))}
       />
     </div>
   )
@@ -317,9 +317,11 @@ function UploadModal({
 }: {
   aberto: boolean
   onFechar: () => void
-  onSalvar: (arq: Omit<ArquivoDigital, "id" | "dataUpload">, idArmazenado: string) => boolean
+  onSalvar: (arq: Omit<ArquivoDigital, "id" | "dataUpload">, idArmazenado: string) => Promise<boolean>
 }) {
-  const { livros, pastas } = useStore()
+  const { livros, pastas, sessao } = useStore()
+  // conectado pela API: o arquivo vai para o servidor (S3)
+  const token = sessao.perfil === "admin" ? sessao.token : undefined
   const { notificar } = useToast()
   const input = useRef<HTMLInputElement>(null)
 
@@ -345,8 +347,11 @@ function UploadModal({
     const v: VinculoArquivo = tipo === "livro" ? { tipo: "livro", livroId: id } : { tipo: "pasta", pastaId: id }
     setEnviando(true)
     try {
-      const armazenado = formato === "pdf" ? await armazenarPdf(arquivo) : await armazenarImagem(arquivo)
-      const salvou = onSalvar(
+      // no bucket: digitalização de obra fica em "acervo/"; de pasta histórica, em "documentos/"
+      const servidor = token ? { token, destino: tipo === "livro" ? ("acervo" as const) : ("documentos" as const) } : undefined
+      const armazenado =
+        formato === "pdf" ? await armazenarPdf(arquivo, undefined, servidor) : await armazenarImagem(arquivo, undefined, servidor)
+      const salvou = await onSalvar(
         {
           titulo: titulo || arquivo.name.replace(/\.[^.]+$/, ""),
           formato,
@@ -360,7 +365,7 @@ function UploadModal({
         armazenado.id,
       )
       if (salvou) limpar()
-      else removerArquivos([armazenado.id])
+      else removerArquivos([armazenado.id], token)
     } catch (err) {
       notificar((err as Error).message, false)
     } finally {
@@ -433,7 +438,7 @@ function UploadModal({
           </Button>
           <Button onClick={enviar} disabled={enviando}>
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {enviando ? "Comprimindo..." : "Anexar"}
+            {enviando ? (token ? "Comprimindo e enviando..." : "Comprimindo...") : "Anexar"}
           </Button>
         </Rodape>
       </div>

@@ -64,6 +64,7 @@ export interface Exemplar {
   livroId: string
   tombamento: string // código de tombamento (patrimônio)
   status: StatusExemplar
+  localizacao?: string // onde a cópia fica (ex.: Estante 3, prateleira B)
   // exemplar retirado do acervo (desbastamento ou doação); o registro é mantido
   // para não perder o histórico de empréstimos
   baixa?: { data: string; motivo: "desbaste" | "doacao" }
@@ -78,6 +79,7 @@ export interface Desbaste {
   statusAnterior: StatusExemplar
   relatorio: string
   data: string
+  admin?: string // nome do administrador que registrou o desbaste
 }
 
 export interface Endereco {

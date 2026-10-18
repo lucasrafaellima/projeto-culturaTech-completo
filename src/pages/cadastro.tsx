@@ -82,7 +82,9 @@ export function CadastroPage() {
                 />
               )}
             </Campo>
-            <Campo rotulo="RG">{(id) => <Input id={id} value={form.rg} onChange={(e) => set("rg", e.target.value)} />}</Campo>
+            <Campo rotulo="RG" opcional>
+              {(id) => <Input id={id} value={form.rg} onChange={(e) => set("rg", e.target.value)} />}
+            </Campo>
             <Campo rotulo="Telefone">
               {(id) => (
                 <Input

@@ -9,6 +9,8 @@ import { useEffect, useState } from "react"
 import type { Compressao } from "./types"
 import { imagemValida, pdfValido } from "./constants"
 import { uuid } from "./utils"
+import { carregarSessao } from "./persistencia"
+import { apagarArquivoNaApi, enviarArquivoNaApi, type DestinoArquivo } from "./api"
 
 const DB_NOME = "culturatech-arquivos"
 const STORE = "arquivos"
@@ -57,8 +59,15 @@ export async function removerArquivo(id: string): Promise<void> {
   await transacao("readwrite", (s) => s.delete(id))
 }
 
-export async function removerArquivos(ids: string[]): Promise<void> {
-  await Promise.all(ids.map((id) => removerArquivo(id).catch(() => undefined)))
+/** Remove do navegador; com token, também apaga no servidor o upload que ficou sem uso. */
+export async function removerArquivos(ids: string[], token?: string): Promise<void> {
+  await Promise.all(
+    ids.map(async (id) => {
+      await removerArquivo(id).catch(() => undefined)
+      // o servidor só apaga arquivo que nada referencia
+      if (token && UUID.test(id)) await apagarArquivoNaApi(token, id)
+    }),
+  )
 }
 
 async function gzip(blob: Blob): Promise<Blob> {
@@ -72,12 +81,55 @@ async function gunzip(blob: Blob, mime: string): Promise<Blob> {
   return new Blob([buf], { type: mime })
 }
 
-/** Lê o arquivo já descomprimido, pronto para exibição. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Arquivo guardado no servidor (S3): a API devolve o conteúdo já descomprimido
+// (PDF em gzip vem com Content-Encoding). Digitalizações do repositório são
+// públicas; fotos e imagens de dano exigem o token da sessão.
+async function lerDaApi(id: string): Promise<Blob | null> {
+  if (!UUID.test(id)) return null
+  const token = carregarSessao().token
+  try {
+    const r = await fetch(`/api/arquivos/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    const tipo = r.headers.get("content-type") ?? ""
+    if (!r.ok || tipo.includes("json") || tipo.includes("html")) return null
+    return await r.blob()
+  } catch {
+    return null
+  }
+}
+
+/** Lê o arquivo já descomprimido, pronto para exibição (navegador ou servidor). */
 export async function lerArquivo(id: string): Promise<Blob | null> {
   const reg = await transacao<Registro | undefined>("readonly", (s) => s.get(id))
-  if (!reg) return null
+  if (!reg) return lerDaApi(id)
   if (reg.compressao === "gzip") return gunzip(reg.blob, reg.mime)
   return reg.blob
+}
+
+/** Envio ao servidor (S3): token da sessão e pasta do bucket onde o arquivo fica. */
+export interface EnvioServidor {
+  token: string
+  destino: DestinoArquivo
+}
+
+// Envia ao servidor o conteúdo já comprimido; devolve o id gerado pelo banco
+async function enviarAoServidor(
+  servidor: EnvioServidor,
+  c: { blob: Blob; mime: string; compressao: Compressao; tamanhoOriginal: number },
+  nome: string,
+): Promise<ArquivoArmazenado> {
+  const r = await enviarArquivoNaApi(servidor.token, c.blob, {
+    mime: c.mime,
+    nome,
+    compressao: c.compressao,
+    tamanhoOriginal: c.tamanhoOriginal,
+    destino: servidor.destino,
+  })
+  if (r.tipo === "indisponivel") throw new Error("Servidor indisponível: não foi possível enviar o arquivo. Tente novamente.")
+  if (r.tipo === "erro") throw new Error(r.mensagem)
+  const a = r.dados.arquivo
+  return { id: a.id, tamanhoOriginal: a.tamanhoOriginal, tamanhoArmazenado: a.tamanhoArmazenado, compressao: a.compressao }
 }
 
 export interface ArquivoArmazenado {
@@ -117,13 +169,19 @@ async function reencodarWebp(blob: Blob): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/webp", 0.8))
 }
 
-/** Valida (RNF12), comprime (RNF13) e armazena uma imagem. */
-export async function armazenarImagem(arquivo: File | Blob, nome?: string): Promise<ArquivoArmazenado> {
+/**
+ * Valida (RNF12), comprime (RNF13) e armazena uma imagem: no navegador ou,
+ * com o token da sessão, no servidor (S3).
+ */
+export async function armazenarImagem(
+  arquivo: File | Blob,
+  nome?: string,
+  servidor?: EnvioServidor,
+): Promise<ArquivoArmazenado> {
   const info = { name: nome ?? (arquivo as File).name ?? "imagem", type: arquivo.type }
   if (!imagemValida(info)) {
     throw new Error("Formato de imagem não permitido. Envie apenas WEBP, JPG ou PNG (RNF12).")
   }
-  const id = uuid()
   let blob: Blob = arquivo
   let compressao: Compressao = "nenhuma"
   try {
@@ -136,32 +194,34 @@ export async function armazenarImagem(arquivo: File | Blob, nome?: string): Prom
   } catch {
     throw new Error("O arquivo enviado não é uma imagem válida.")
   }
+  if (servidor) {
+    return enviarAoServidor(servidor, { blob, mime: blob.type, compressao, tamanhoOriginal: arquivo.size }, info.name)
+  }
+  const id = uuid()
   await salvarRegistro({ id, blob, mime: blob.type, compressao })
   return { id, tamanhoOriginal: arquivo.size, tamanhoArmazenado: blob.size, compressao }
 }
 
-/** Valida, comprime com gzip (RNF13) e armazena um PDF. */
-export async function armazenarPdf(arquivo: File | Blob, nome?: string): Promise<ArquivoArmazenado> {
+/** Valida, comprime com gzip (RNF13) e armazena um PDF (no navegador ou, com token, no servidor). */
+export async function armazenarPdf(
+  arquivo: File | Blob,
+  nome?: string,
+  servidor?: EnvioServidor,
+): Promise<ArquivoArmazenado> {
   const info = { name: nome ?? (arquivo as File).name ?? "documento.pdf", type: arquivo.type }
   if (!pdfValido(info)) {
     throw new Error("O arquivo precisa ser um PDF.")
   }
-  const id = uuid()
   const comprimido = await gzip(arquivo)
   const usarGzip = comprimido.size < arquivo.size
   const blob = usarGzip ? comprimido : arquivo
-  await salvarRegistro({
-    id,
-    blob,
-    mime: "application/pdf",
-    compressao: usarGzip ? "gzip" : "nenhuma",
-  })
-  return {
-    id,
-    tamanhoOriginal: arquivo.size,
-    tamanhoArmazenado: blob.size,
-    compressao: usarGzip ? "gzip" : "nenhuma",
+  const compressao: Compressao = usarGzip ? "gzip" : "nenhuma"
+  if (servidor) {
+    return enviarAoServidor(servidor, { blob, mime: "application/pdf", compressao, tamanhoOriginal: arquivo.size }, info.name)
   }
+  const id = uuid()
+  await salvarRegistro({ id, blob, mime: "application/pdf", compressao })
+  return { id, tamanhoOriginal: arquivo.size, tamanhoArmazenado: blob.size, compressao }
 }
 
 /** Grava um arquivo com id fixo (usado nos dados de demonstração). */

@@ -3,11 +3,15 @@
 Modelo relacional para **PostgreSQL 16** no **Amazon RDS**, derivado de `src/lib/types.ts`, das regras em
 `src/lib/regras.ts`/`constants.ts` e do diagrama de classes (`modelo de classes/`).
 
-| Arquivo | Conteúdo |
-|---|---|
-| `01_schema.sql` | Tabelas, restrições, índices, triggers de regras de negócio e visões (schema `culturatech`) |
-| `02_dados_exemplo.sql` | Dados de demonstração com as mesmas contas e cenários do README do app |
-| `03_ajuste_search_path.sql` | Só para bancos criados antes de as funções fixarem o próprio `search_path`; rode uma vez |
+| Arquivo                       | Conteúdo                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `01_schema.sql`               | Tabelas, restrições, índices, triggers de regras de negócio e visões (schema `culturatech`)             |
+| `02_dados_exemplo.sql`        | Dados de demonstração com as mesmas contas e cenários do README do app                                  |
+| `03_ajuste_search_path.sql`   | Só para bancos criados antes de as funções fixarem o próprio `search_path`; rode uma vez                |
+| `04_localizacao_exemplar.sql` | Só para bancos criados antes da coluna `exemplar.localizacao`; rode uma vez (pode repetir sem problema) |
+
+> Banco novo: rode apenas `01_schema.sql` (e, se quiser os dados de demonstração, `02_dados_exemplo.sql`). Os arquivos
+> `03` e `04` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
 
 ## Diagrama entidade-relacionamento
 
@@ -49,8 +53,12 @@ erDiagram
   Senhas são guardadas como hash **bcrypt**, gerado pelo back-end (não SHA-256 como no protótipo).
 - **Obra × exemplar**: `livro` é o título; `exemplar` é o item físico com UUID (RN20) e tombamento único.
   Exemplares baixados (desbaste/doação) recebem `baixa_data`/`baixa_motivo` e nunca são apagados, para manter o histórico.
-- **Arquivos**: imagens e PDFs ficam no **Amazon S3**; a tabela `arquivo` guarda só metadados e a chave do objeto.
-  Banco relacional não é bom lugar para binários grandes.
+- **Localização do exemplar**: `exemplar.localizacao` (`VARCHAR(80)`, opcional) diz onde a cópia fica, por exemplo
+  "Estante 3, prateleira B". Quando é nula, vale a `secao` (A–Z) da obra. É informação interna da equipe: a visão
+  `vw_consulta_publica` não a expõe.
+- **Arquivos**: imagens e PDFs ficam no **Amazon S3**; a tabela `arquivo` guarda só metadados e a chave do objeto
+  (`chave_storage`, no formato `<pasta>/<uuid>.<extensão>`, com as pastas `mural`, `acervo`, `documentos`, `socios` e
+  `danos`). Banco relacional não é bom lugar para binários grandes.
 - **Listas do front-end viraram tabelas**: `autorIds` → `livro_autor` (com ordem — RN19), `historico` do empréstimo →
   `emprestimo_evento`, `pareceres` → `parecer_multa`, `tombamentos` → `movimentacao_exemplar`, `imagemIds` → tabelas de imagem.
 - **Backups**: a tela de backups do protótipo é substituída pelos backups automáticos e snapshots do RDS.
@@ -59,37 +67,35 @@ erDiagram
 
 ### Regras garantidas pelo próprio banco
 
-| Regra | Como |
-|---|---|
-| RN01 — até 3 itens (empréstimos + reservas) | trigger `tg_validar_emprestimo` / `tg_validar_reserva` |
-| RN04 — raro, cordel e exemplar único não saem | triggers acima |
-| RN05 — um agendamento por sócio por dia | índice único parcial `ux_agendamento_socio_dia` |
-| RN08 — multa em aberto ou atraso bloqueia | função `fn_socio_bloqueado` nos triggers |
-| RN17 — até 3 renovações | `CHECK (renovacoes BETWEEN 0 AND 3)` |
-| RN22 — seção de A a Z | `CHECK (secao ~ '^[A-Z]$')` |
-| RN26 — pessoa física recebe 1 doação | trigger `tg_validar_doacao` |
-| RN30 — mascarar status internos | visão `vw_consulta_publica` |
-| RN31 — desbaste só de ocioso/danificado, com relatório | `CHECK` em `desbaste` |
-| Um empréstimo/reserva ativo por exemplar | índices únicos parciais |
-| Uma mesa por turno | `ux_agendamento_mesa_turno` |
-| Aviso de e-mail enviado uma vez por prazo | `UNIQUE (emprestimo_id, tipo, referencia)` |
-| Status do exemplar acompanha a circulação | triggers `tg_sincronizar_emprestimo` / `tg_sincronizar_reserva` |
+| Regra                                                  | Como                                                            |
+| ------------------------------------------------------ | --------------------------------------------------------------- |
+| RN01 — até 3 itens (empréstimos + reservas)            | trigger `tg_validar_emprestimo` / `tg_validar_reserva`          |
+| RN04 — raro, cordel e exemplar único não saem          | triggers acima                                                  |
+| RN05 — um agendamento por sócio por dia                | índice único parcial `ux_agendamento_socio_dia`                 |
+| RN08 — multa em aberto ou atraso bloqueia              | função `fn_socio_bloqueado` nos triggers                        |
+| RN17 — até 3 renovações                                | `CHECK (renovacoes BETWEEN 0 AND 3)`                            |
+| RN22 — seção de A a Z                                  | `CHECK (secao ~ '^[A-Z]$')`                                     |
+| RN26 — pessoa física recebe 1 doação                   | trigger `tg_validar_doacao`                                     |
+| RN30 — mascarar status internos                        | visão `vw_consulta_publica`                                     |
+| RN31 — desbaste só de ocioso/danificado, com relatório | `CHECK` em `desbaste`                                           |
+| Um empréstimo/reserva ativo por exemplar               | índices únicos parciais                                         |
+| Uma mesa por turno                                     | `ux_agendamento_mesa_turno`                                     |
+| Aviso de e-mail enviado uma vez por prazo              | `UNIQUE (emprestimo_id, tipo, referencia)`                      |
+| Status do exemplar acompanha a circulação              | triggers `tg_sincronizar_emprestimo` / `tg_sincronizar_reserva` |
 
 Cálculos dependentes da data (multa de R$ 1,00/dia, expiração de reservas e da fila, envio de e-mails) continuam na
 rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito corrente de cada sócio.
 
 ## Como criar no Amazon RDS
 
-> Guia detalhado, com tela a tela, testes e solução de problemas: [PASSO_A_PASSO_AWS.md](PASSO_A_PASSO_AWS.md).
-
 1. **Console AWS → RDS → Criar banco de dados**
-   - Método: *Criação padrão* · Mecanismo: **PostgreSQL 16**
+   - Método: _Criação padrão_ · Mecanismo: **PostgreSQL 16**
    - Modelo: **Nível gratuito** (db.t3.micro / db.t4g.micro, 20 GB gp3)
    - Identificador: `culturatech-db` · usuário mestre: `postgres` · defina uma senha forte
-   - Nome do banco inicial (em *Configuração adicional*): `culturatech`
+   - Nome do banco inicial (em _Configuração adicional_): `culturatech`
    - Backups automáticos: manter ligado (7 dias)
 2. **Conectividade**
-   - Para testes da equipe: *Acesso público = Sim* e, no **Security Group**, liberar a porta **5432** apenas para os
+   - Para testes da equipe: _Acesso público = Sim_ e, no **Security Group**, liberar a porta **5432** apenas para os
      IPs de vocês (`Meu IP`). Nunca libere `0.0.0.0/0`.
    - Em produção, o ideal é acesso público = Não, com só o back-end (na mesma VPC) acessando o banco.
 3. Aguarde o status **Disponível** e copie o **endpoint** (ex.: `culturatech-db.xxxx.us-east-1.rds.amazonaws.com`).
@@ -99,6 +105,9 @@ rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito c
    psql "host=<endpoint> port=5432 dbname=culturatech user=postgres sslmode=require" -f 01_schema.sql
    psql "host=<endpoint> port=5432 dbname=culturatech user=postgres sslmode=require" -f 02_dados_exemplo.sql
    ```
+
+   Se o banco já existia de antes, rode também os ajustes que faltarem: `03_ajuste_search_path.sql` e
+   `04_localizacao_exemplar.sql`.
 
 5. **Crie um usuário próprio para a aplicação** (não use o `postgres` no back-end):
 
@@ -122,5 +131,7 @@ rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito c
 
 ## Observação
 
-O front-end atual (React) não acessa o banco diretamente — e não deve: navegador nunca conecta no RDS.
-O próximo passo é um back-end (API) que use estas tabelas no lugar do `localStorage`/IndexedDB do `store.tsx`.
+O front-end (React) não acessa o banco diretamente — e não deve: navegador nunca conecta no RDS. Quem usa estas tabelas
+é a API em [`server/`](../server/README.md), que cobre login e cadastro, acervo, circulação, sócios, repositório
+digital e mural. Mesas de estudo, doações, notificações e backups ainda ficam no navegador; as tabelas correspondentes
+existem aqui, mas ainda não têm rotas na API.

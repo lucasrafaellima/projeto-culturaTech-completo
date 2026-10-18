@@ -28,7 +28,14 @@ function cpfValido(valor: string): boolean {
 
 const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "")
 
-interface DadosCadastro {
+export function validarSenha(senha: string): string | null {
+  if (senha.length < 6) return "A senha deve ter ao menos 6 caracteres."
+  if (Buffer.byteLength(senha) > 72) return "A senha deve ter no máximo 72 caracteres."
+  if (senha !== senha.trim()) return "A senha não pode começar nem terminar com espaço."
+  return null
+}
+
+export interface DadosCadastro {
   nome: string
   cpf: string
   rg: string
@@ -41,7 +48,11 @@ interface DadosCadastro {
   senha: string
 }
 
-function validar(corpo: Record<string, unknown>): { erro: string } | { dados: DadosCadastro } {
+// exigirSenha: false na edição feita pelo administrador (a senha não muda ali)
+export function validarDadosSocio(
+  corpo: Record<string, unknown>,
+  { exigirSenha = true } = {},
+): { erro: string } | { dados: DadosCadastro } {
   const endereco = (typeof corpo.endereco === "object" && corpo.endereco ? corpo.endereco : {}) as Record<string, unknown>
   const senha = typeof corpo.senha === "string" ? corpo.senha : ""
   const d: DadosCadastro = {
@@ -60,7 +71,6 @@ function validar(corpo: Record<string, unknown>): { erro: string } | { dados: Da
   if (d.nome.split(" ").length < 2) return { erro: "Informe o nome completo." }
   if (d.nome.length > 150) return { erro: "Nome muito longo (máximo de 150 caracteres)." }
   if (!cpfValido(d.cpf)) return { erro: "CPF inválido." }
-  if (!d.rg) return { erro: "Informe o RG." }
   if (d.rg.length > 20) return { erro: "RG muito longo (máximo de 20 caracteres)." }
   if (d.telefone.length !== 10 && d.telefone.length !== 11) return { erro: "Telefone inválido. Use DDD + número." }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.email) || d.email.length > 254) return { erro: "E-mail inválido." }
@@ -69,9 +79,10 @@ function validar(corpo: Record<string, unknown>): { erro: string } | { dados: Da
     return { erro: "Endereço muito longo (rua até 150, número até 10 e bairro até 80 caracteres)." }
   }
   if (d.cep.length !== 8) return { erro: "CEP inválido." }
-  if (senha.length < 6) return { erro: "A senha deve ter ao menos 6 caracteres." }
-  if (Buffer.byteLength(senha) > 72) return { erro: "A senha deve ter no máximo 72 caracteres." }
-  if (senha !== senha.trim()) return { erro: "A senha não pode começar nem terminar com espaço." }
+  if (exigirSenha) {
+    const erroSenha = validarSenha(senha)
+    if (erroSenha) return { erro: erroSenha }
+  }
   if (corpo.consentimentoLgpd !== true) {
     return { erro: "É necessário registrar o consentimento do titular para o tratamento dos dados (LGPD)." }
   }
@@ -85,7 +96,7 @@ export type ResultadoCadastro =
 // Cadastro feito pelo próprio visitante: cria o sócio-leitor e já devolve o token
 export async function cadastrarSocio(corpo: unknown): Promise<ResultadoCadastro> {
   if (typeof corpo !== "object" || !corpo) return { ok: false, status: 400, mensagem: "Corpo da requisição inválido." }
-  const r = validar(corpo as Record<string, unknown>)
+  const r = validarDadosSocio(corpo as Record<string, unknown>)
   if ("erro" in r) return { ok: false, status: 400, mensagem: r.erro }
   const d = r.dados
 
@@ -96,7 +107,7 @@ export async function cadastrarSocio(corpo: unknown): Promise<ResultadoCadastro>
                                  endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE)
        RETURNING id, nome, ${COLUNAS_CADASTRO_SOCIO}`,
-      [d.nome, d.cpf, d.rg, d.telefone, d.email, d.rua, d.numero, d.bairro, d.cep, senhaHash],
+      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, d.rua, d.numero, d.bairro, d.cep, senhaHash],
     )
     const usuario: UsuarioLogado = { id: rows[0].id, nome: rows[0].nome, perfil: "socio", pendencias: false }
     return {

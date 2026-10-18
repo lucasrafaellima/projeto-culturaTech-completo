@@ -73,7 +73,7 @@ export function MinhaAreaPage() {
 
   function enviarJustificativa() {
     if (!justificando) return
-    executar(registrarJustificativa(justificando.id, texto), () => {
+    executar(() => registrarJustificativa(justificando.id, texto), () => {
       setJustificando(null)
       setTexto("")
     })
@@ -186,7 +186,7 @@ export function MinhaAreaPage() {
               <div className="flex items-center gap-2">
                 <BadgeReserva r={r} />
                 {r.status === "ativa" && (
-                  <Button variante="ghost" tamanho="sm" onClick={() => executar(cancelarReserva(r.id))}>
+                  <Button variante="ghost" tamanho="sm" onClick={() => executar(() => cancelarReserva(r.id))}>
                     Cancelar
                   </Button>
                 )}

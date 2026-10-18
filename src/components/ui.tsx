@@ -245,11 +245,13 @@ export function Label({ children, className, htmlFor }: { children: ReactNode; c
 /** Campo com rótulo e dica, ligados ao input por id (acessibilidade). */
 export function Campo({
   rotulo,
+  opcional,
   dica,
   children,
   className,
 }: {
   rotulo: string
+  opcional?: boolean
   dica?: ReactNode
   children: (id: string) => ReactNode
   className?: string
@@ -257,7 +259,10 @@ export function Campo({
   const id = useId()
   return (
     <div className={className}>
-      <Label htmlFor={id}>{rotulo}</Label>
+      <Label htmlFor={id}>
+        {rotulo}
+        {opcional && <span className="font-normal text-muted-foreground"> (opcional)</span>}
+      </Label>
       {children(id)}
       {dica && <p className="mt-1 text-xs text-muted-foreground text-pretty">{dica}</p>}
     </div>
@@ -467,13 +472,32 @@ export function useToast() {
 }
 
 /** Atalho: executa uma ação de regra de negócio e mostra o resultado. */
+type ResultadoAcao = { ok: boolean; mensagem: string }
+
+// Mostra o resultado de uma ação num toast. Aceita o resultado pronto ou uma
+// função que devolve o resultado (ou uma Promise, quando a ação espera o servidor):
+// nesse caso, um segundo clique enquanto a primeira está em andamento é ignorado.
 export function useAcao() {
   const { notificar } = useToast()
+  const emAndamento = useRef(false)
   return useCallback(
-    (r: { ok: boolean; mensagem: string }, depois?: () => void) => {
-      notificar(r.mensagem, r.ok)
-      if (r.ok) depois?.()
-      return r.ok
+    async (
+      acao: ResultadoAcao | (() => ResultadoAcao | Promise<ResultadoAcao>),
+      depois?: () => void,
+    ): Promise<boolean> => {
+      const mostrar = (r: ResultadoAcao) => {
+        notificar(r.mensagem, r.ok)
+        if (r.ok) depois?.()
+        return r.ok
+      }
+      if (typeof acao !== "function") return mostrar(acao)
+      if (emAndamento.current) return false
+      emAndamento.current = true
+      try {
+        return mostrar(await acao())
+      } finally {
+        emAndamento.current = false
+      }
     },
     [notificar],
   )

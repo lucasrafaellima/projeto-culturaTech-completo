@@ -53,12 +53,13 @@ export function ParceriasPage() {
     setMov({ tipo, receptorId, livroId: "", exemplarIds: [], tombamentos: "", observacao: "" })
   }
 
-  function salvarMov() {
+  async function salvarMov() {
     if (!mov) return
+    // a aquisição espera o servidor quando o acervo está no banco
     const r =
       mov.tipo === "doacao"
         ? store.registrarDoacao(mov.receptorId, mov.exemplarIds, mov.observacao)
-        : store.registrarAquisicao(mov.receptorId, mov.livroId, mov.tombamentos.split(/[\n,;]/), mov.observacao)
+        : await store.registrarAquisicao(mov.receptorId, mov.livroId, mov.tombamentos.split(/[\n,;]/), mov.observacao)
     executar(r, () => setMov(null))
   }
 

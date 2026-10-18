@@ -3,11 +3,20 @@ import { config } from "./config.ts"
 import { pool } from "./db.ts"
 import { autenticar, usuarioDoToken } from "./auth.ts"
 import { cadastrarSocio } from "./cadastro.ts"
+import { rotasAcervo } from "./acervo.ts"
+import { rotasArquivos } from "./arquivos.ts"
+import { rotasRepositorio } from "./repositorio.ts"
+import { rotasCirculacao } from "./circulacao.ts"
+import { rotasSocios } from "./socios.ts"
+import { rotasMural } from "./mural.ts"
 import { limparFalhas, registrarFalha, segundosBloqueado } from "./limitador.ts"
 
 const app = express()
 app.disable("x-powered-by")
-app.use(express.json({ limit: "10kb" }))
+// Corpo pequeno por padrão; a importação em lote de obras tem o próprio limite
+// (aplicado na rota, depois de conferir que é administrador)
+const jsonPadrao = express.json({ limit: "10kb" })
+app.use((req, res, next) => (req.path === "/api/livros/importar" ? next() : jsonPadrao(req, res, next)))
 
 // Verifica se a API alcança o banco
 app.get("/api/saude", async (_req, res) => {
@@ -82,6 +91,15 @@ app.get("/api/auth/me", async (req, res) => {
   res.json({ ok: true, usuario })
 })
 
+// Acervo: livros, exemplares e desbaste (só administradores) e a consulta pública
+app.use("/api", rotasAcervo)
+// Arquivos (S3 ou disco), repositório digital, circulação e sócios
+app.use("/api", rotasArquivos)
+app.use("/api", rotasRepositorio)
+app.use("/api", rotasCirculacao)
+app.use("/api", rotasSocios)
+app.use("/api", rotasMural)
+
 app.use("/api", (_req, res) => {
   res.status(404).json({ ok: false, mensagem: "Rota não encontrada." })
 })
@@ -90,6 +108,10 @@ app.use("/api", (_req, res) => {
 app.use((erro: Error & { type?: string }, _req: Request, res: Response, _next: NextFunction) => {
   if (erro.type === "entity.parse.failed") {
     res.status(400).json({ ok: false, mensagem: "Corpo da requisição inválido." })
+    return
+  }
+  if (erro.type === "entity.too.large") {
+    res.status(413).json({ ok: false, mensagem: "Corpo da requisição grande demais." })
     return
   }
   console.error(erro)

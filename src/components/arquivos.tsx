@@ -3,6 +3,8 @@ import { FileText, ImageIcon, Loader2, Upload, X } from "lucide-react"
 import { useArquivoUrl, armazenarImagem, removerArquivos } from "@/lib/arquivos"
 import { ACCEPT_IMAGEM } from "@/lib/constants"
 import { cn } from "@/lib/utils"
+import { useStore } from "@/lib/store"
+import type { DestinoArquivo } from "@/lib/api"
 import { Button, useToast } from "./ui"
 
 /** Exibe uma imagem armazenada no IndexedDB. */
@@ -80,15 +82,21 @@ export function SeletorImagens({
   onChange,
   maximo = 4,
   rotulo = "Adicionar imagem",
+  destino,
 }: {
   ids: string[]
   onChange: (ids: string[]) => void
   maximo?: number
   rotulo?: string
+  /** pasta do bucket: com o administrador conectado pela API, as imagens vão para o servidor (S3) */
+  destino?: DestinoArquivo
 }) {
   const input = useRef<HTMLInputElement>(null)
   const { notificar } = useToast()
+  const { sessao } = useStore()
   const [enviando, setEnviando] = useState(false)
+  const token = destino && sessao.perfil === "admin" ? sessao.token : undefined
+  const servidor = token && destino ? { token, destino } : undefined
 
   async function aoEscolher(arquivos: FileList | null) {
     if (!arquivos || arquivos.length === 0) return
@@ -97,7 +105,7 @@ export function SeletorImagens({
     const novos: string[] = []
     for (const arq of lista) {
       try {
-        const r = await armazenarImagem(arq)
+        const r = await armazenarImagem(arq, undefined, servidor)
         novos.push(r.id)
       } catch (err) {
         notificar(`${arq.name}: ${(err as Error).message}`, false)
@@ -109,7 +117,7 @@ export function SeletorImagens({
   }
 
   function remover(id: string) {
-    removerArquivos([id])
+    removerArquivos([id], token)
     onChange(ids.filter((x) => x !== id))
   }
 

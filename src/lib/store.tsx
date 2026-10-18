@@ -101,7 +101,51 @@ import {
 } from "./persistencia"
 import { garantirArquivosDemo } from "./demo-arquivos"
 import { aguardarAntesDeLer, removerArquivos } from "./arquivos"
-import { cadastroNaApi, loginNaApi, usuarioDoToken, type LoginApi } from "./api"
+import {
+  acervoDaApi,
+  acervoPublicoDaApi,
+  adicionarExemplaresNaApi,
+  alterarEmprestimoNaApi,
+  alternarAtivoSocioNaApi,
+  anexarDocumentoNaApi,
+  anonimizarSocioNaApi,
+  cadastroNaApi,
+  cancelarEmprestimoNaApi,
+  cancelarReservaNaApi,
+  circulacaoDaApi,
+  desbastarNaApi,
+  devolverNaApi,
+  editarExemplarNaApi,
+  emprestarNaApi,
+  excluirDocumentoNaApi,
+  excluirExemplarNaApi,
+  excluirLivroNaApi,
+  excluirPastaNaApi,
+  importarObrasNaApi,
+  julgarMultaNaApi,
+  justificarMultaNaApi,
+  loginNaApi,
+  minhaCirculacaoDaApi,
+  muralDaApi,
+  salvarPublicacaoNaApi,
+  excluirPublicacaoNaApi,
+  quitarMultaNaApi,
+  redefinirSenhaSocioNaApi,
+  renovarNaApi,
+  repositorioDaApi,
+  reservarNaApi,
+  salvarLivroNaApi,
+  salvarPastaNaApi,
+  salvarSocioNaApi,
+  usuarioDoToken,
+  type AcervoApi,
+  type CirculacaoApi,
+  type ExemplarApi,
+  type LivroApi,
+  type LoginApi,
+  type RepositorioApi,
+  type RespostaApi,
+} from "./api"
 import type { LinhaObra, LinhaSocio, ErroLinha } from "./csv"
 
 export type { Resultado } from "./regras"
@@ -188,32 +232,35 @@ interface StoreContextType extends Estado {
   reservasDoSocio: (socioId: string) => Reserva[] | null // RN28
 
   // acervo (RF01 / RF16)
-  salvarLivro: (dados: DadosLivro, id?: string) => Resultado
-  excluirLivro: (id: string) => Resultado
-  adicionarExemplares: (livroId: string, tombamentos: string[]) => Resultado
-  editarExemplar: (id: string, dados: { tombamento: string; status: StatusExemplar }) => Resultado
-  excluirExemplar: (id: string) => Resultado
-  desbastarExemplar: (id: string, relatorio: string) => Resultado
+  salvarLivro: (dados: DadosLivro, id?: string) => Promise<Resultado>
+  excluirLivro: (id: string) => Promise<Resultado>
+  adicionarExemplares: (livroId: string, tombamentos: string[], localizacao?: string) => Promise<Resultado>
+  editarExemplar: (
+    id: string,
+    dados: { tombamento: string; status: StatusExemplar; localizacao?: string },
+  ) => Promise<Resultado>
+  excluirExemplar: (id: string) => Promise<Resultado>
+  desbastarExemplar: (id: string, relatorio: string) => Promise<Resultado>
 
   // sócios-leitores (RF02)
-  salvarSocio: (dados: DadosSocio, id?: string) => Resultado
-  alternarAtivoSocio: (id: string) => Resultado
-  redefinirSenhaSocio: (id: string, novaSenha: string) => Resultado
-  anonimizarSocio: (id: string) => Resultado
+  salvarSocio: (dados: DadosSocio, id?: string) => Promise<Resultado>
+  alternarAtivoSocio: (id: string) => Promise<Resultado>
+  redefinirSenhaSocio: (id: string, novaSenha: string) => Promise<Resultado>
+  anonimizarSocio: (id: string) => Promise<Resultado>
 
   // circulação (RF03 / RF07 / RF09 / RF15)
-  realizarEmprestimo: (socioId: string, exemplarId: string) => Resultado
-  renovarEmprestimo: (id: string) => Resultado
-  alterarEmprestimo: (id: string, novaDataPrevista: string, motivo: string) => Resultado
-  cancelarEmprestimo: (id: string, motivo: string) => Resultado
-  devolverEmprestimo: (id: string, dano?: DadosDano) => Resultado
-  quitarMulta: (id: string) => Resultado
-  registrarJustificativa: (multaId: string, texto: string) => Resultado
-  julgarJustificativa: (multaId: string, decisao: "deferido" | "indeferido", parecer: string) => Resultado
+  realizarEmprestimo: (socioId: string, exemplarId: string) => Promise<Resultado>
+  renovarEmprestimo: (id: string) => Promise<Resultado>
+  alterarEmprestimo: (id: string, novaDataPrevista: string, motivo: string) => Promise<Resultado>
+  cancelarEmprestimo: (id: string, motivo: string) => Promise<Resultado>
+  devolverEmprestimo: (id: string, dano?: DadosDano) => Promise<Resultado>
+  quitarMulta: (id: string) => Promise<Resultado>
+  registrarJustificativa: (multaId: string, texto: string) => Promise<Resultado>
+  julgarJustificativa: (multaId: string, decisao: "deferido" | "indeferido", parecer: string) => Promise<Resultado>
 
   // reservas (RF14)
-  reservarLivro: (livroId: string, socioId?: string) => Resultado
-  cancelarReserva: (id: string) => Resultado
+  reservarLivro: (livroId: string, socioId?: string) => Promise<Resultado>
+  cancelarReserva: (id: string) => Promise<Resultado>
 
   // notificações (RF05)
   executarRotinaAgora: () => RelatorioRotina | null
@@ -229,20 +276,20 @@ interface StoreContextType extends Estado {
   salvarReceptor: (dados: DadosReceptor, id?: string) => Resultado
   excluirReceptor: (id: string) => Resultado
   registrarDoacao: (receptorId: string, exemplarIds: string[], observacao?: string) => Resultado
-  registrarAquisicao: (receptorId: string, livroId: string, tombamentos: string[], observacao?: string) => Resultado
+  registrarAquisicao: (receptorId: string, livroId: string, tombamentos: string[], observacao?: string) => Promise<Resultado>
 
   // repositório digital (RF08 / RF17)
-  adicionarArquivo: (arq: Omit<ArquivoDigital, "id" | "dataUpload">, idArmazenado: string) => Resultado
-  excluirArquivo: (id: string) => Resultado
-  salvarPasta: (dados: Omit<PastaHistorica, "id">, id?: string) => Resultado
-  excluirPasta: (id: string) => Resultado
+  adicionarArquivo: (arq: Omit<ArquivoDigital, "id" | "dataUpload">, idArmazenado: string) => Promise<Resultado>
+  excluirArquivo: (id: string) => Promise<Resultado>
+  salvarPasta: (dados: Omit<PastaHistorica, "id">, id?: string) => Promise<Resultado>
+  excluirPasta: (id: string) => Promise<Resultado>
 
   // mural (RF12)
-  salvarPublicacao: (dados: Omit<Publicacao, "id">, id?: string) => Resultado
-  excluirPublicacao: (id: string) => Resultado
+  salvarPublicacao: (dados: Omit<Publicacao, "id">, id?: string) => Promise<Resultado>
+  excluirPublicacao: (id: string) => Promise<Resultado>
 
   // importação CSV (RN21 / RNF03)
-  importarObras: (linhas: LinhaObra[]) => ResultadoImportacao
+  importarObras: (linhas: LinhaObra[]) => Promise<ResultadoImportacao>
   importarSocios: (linhas: LinhaSocio[]) => ResultadoImportacao
 
   // backups (RNF05)
@@ -254,6 +301,123 @@ interface StoreContextType extends Estado {
 }
 
 const StoreContext = createContext<StoreContextType | null>(null)
+
+// Registros do acervo vindos da API (banco) no formato do estado local
+const exemplarDaApi = (e: ExemplarApi): Exemplar => ({
+  id: e.id,
+  livroId: e.livroId,
+  tombamento: e.tombamento,
+  status: e.status,
+  ...(e.localizacao ? { localizacao: e.localizacao } : {}),
+  ...(e.baixa ? { baixa: e.baixa } : {}),
+})
+
+// O banco é a fonte do acervo para o administrador que entrou pela API:
+// obras, autores, exemplares e desbastes locais são substituídos pelos do banco
+const acervoParaEstado = (atual: Estado, a: AcervoApi): Estado => ({
+  ...atual,
+  autores: a.autores,
+  livros: a.livros,
+  exemplares: a.exemplares.map(exemplarDaApi),
+  desbastes: a.desbastes,
+})
+
+// Com a API no ar, o banco também é a fonte da circulação (empréstimos, multas,
+// danos, reservas), dos sócios-leitores e do repositório digital
+const circulacaoParaEstado = (atual: Estado, c: CirculacaoApi): Estado => ({
+  ...atual,
+  socios: c.socios,
+  emprestimos: c.emprestimos,
+  multas: c.multas,
+  ocorrencias: c.ocorrencias,
+  reservas: c.reservas,
+})
+
+const repositorioParaEstado = (atual: Estado, r: RepositorioApi): Estado => ({
+  ...atual,
+  pastas: r.pastas,
+  arquivos: r.documentos,
+})
+
+// Sócio conectado pela API: o próprio cadastro (com o id do banco) e a própria circulação.
+// O registro local com o mesmo CPF é trocado pelo do banco; a senha local é mantida
+// para o modo de demonstração (o banco nunca devolve a senha).
+const minhaCirculacaoParaEstado = (
+  atual: Estado,
+  m: { socio?: SocioLeitor; emprestimos: Emprestimo[]; multas: Multa[]; reservas: Reserva[] },
+  senhaLocal?: string,
+): Estado => {
+  const s = m.socio
+  const anterior = s ? atual.socios.find((x) => x.id === s.id || (!!s.cpf && x.cpf === s.cpf)) : undefined
+  const socio = s ? { ...anterior, ...s, senha: senhaLocal ?? anterior?.senha ?? "" } : undefined
+  return {
+    ...atual,
+    socios: socio ? [...atual.socios.filter((x) => x !== anterior && x.id !== socio.id), socio] : atual.socios,
+    emprestimos: m.emprestimos,
+    multas: m.multas,
+    reservas: m.reservas,
+    ocorrencias: [],
+  }
+}
+
+type PerfilApi = "admin" | "socio" | "publico"
+
+// Carrega do banco tudo o que o perfil usa (e o mural, que é de todos); só aplica se
+// todas as leituras derem certo, para a tela nunca misturar dados do banco com dados
+// antigos do navegador
+async function carregarDoBanco(
+  perfil: PerfilApi,
+  token?: string,
+): Promise<{ ok: true; aplicar: (e: Estado, senhaLocal?: string) => Estado } | { ok: false; mensagem: string }> {
+  const [base, mural] = await Promise.all([carregarDadosDoPerfil(perfil, token), muralDaApi()])
+  if (!base.ok) return base
+  if (mural.tipo !== "ok") {
+    return {
+      ok: false,
+      mensagem: mural.tipo === "erro" ? mural.mensagem : "Não foi possível carregar os dados do servidor. Tente novamente.",
+    }
+  }
+  return { ok: true, aplicar: (e, senhaLocal) => ({ ...base.aplicar(e, senhaLocal), publicacoes: mural.dados.publicacoes }) }
+}
+
+async function carregarDadosDoPerfil(
+  perfil: PerfilApi,
+  token?: string,
+): Promise<{ ok: true; aplicar: (e: Estado, senhaLocal?: string) => Estado } | { ok: false; mensagem: string }> {
+  const falhou = (r: RespostaApi<unknown>) => ({
+    ok: false as const,
+    mensagem: r.tipo === "erro" ? r.mensagem : "Não foi possível carregar os dados do servidor. Tente novamente.",
+  })
+  if (perfil === "admin" && token) {
+    const [a, c, r] = await Promise.all([acervoDaApi(token), circulacaoDaApi(token), repositorioDaApi()])
+    if (a.tipo !== "ok") return falhou(a)
+    if (c.tipo !== "ok") return falhou(c)
+    if (r.tipo !== "ok") return falhou(r)
+    return {
+      ok: true,
+      aplicar: (e) => repositorioParaEstado(circulacaoParaEstado(acervoParaEstado(e, a.dados), c.dados), r.dados),
+    }
+  }
+  if (perfil === "socio" && token) {
+    const [a, m, r] = await Promise.all([acervoPublicoDaApi(), minhaCirculacaoDaApi(token), repositorioDaApi()])
+    if (a.tipo !== "ok") return falhou(a)
+    if (m.tipo !== "ok") return falhou(m)
+    if (r.tipo !== "ok") return falhou(r)
+    return {
+      ok: true,
+      aplicar: (e, senhaLocal) =>
+        repositorioParaEstado(minhaCirculacaoParaEstado(acervoParaEstado(e, a.dados), m.dados, senhaLocal), r.dados),
+    }
+  }
+  const [a, r] = await Promise.all([acervoPublicoDaApi(), repositorioDaApi()])
+  if (a.tipo !== "ok") return falhou(a)
+  if (r.tipo !== "ok") return falhou(r)
+  return { ok: true, aplicar: (e) => repositorioParaEstado(acervoParaEstado(e, a.dados), r.dados) }
+}
+
+// troca o registro de mesmo id (ou acrescenta no início)
+const trocar = <T extends { id: string }>(lista: T[], item: T): T[] =>
+  lista.some((x) => x.id === item.id) ? lista.map((x) => (x.id === item.id ? item : x)) : [item, ...lista]
 
 const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil (RNF02)."
 
@@ -288,17 +452,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     salvarSessao(sessao)
   }, [sessao])
 
+  const sessaoRef = useRef(sessao)
+  useEffect(() => {
+    sessaoRef.current = sessao
+  }, [sessao])
+
   // Ao abrir o app, confere se o token salvo ainda vale (expirou, cadastro
-  // desativado no banco...). Sem resposta da API, mantém a sessão.
+  // desativado no banco...) e recarrega do banco o que o perfil usa (acervo,
+  // circulação, repositório). Sem resposta da API, mantém os dados do navegador.
   useEffect(() => {
     const token = sessao.token
-    if (!token) return
-    usuarioDoToken(token).then((r) => {
-      if (r.tipo === "erro" && r.status === 401) {
+    ;(async () => {
+      let perfil: PerfilApi = "publico"
+      if (token) {
+        const r = await usuarioDoToken(token)
+        if (r.tipo === "indisponivel") return
+        if (r.tipo === "erro") {
+          if (r.status !== 401) return
+          setSessao({ perfil: "publico", usuarioId: null })
+          setAlertaLogin(false)
+        } else {
+          perfil = r.dados.usuario.perfil
+        }
+      }
+      const c = await carregarDoBanco(perfil, perfil === "publico" ? undefined : token)
+      if (!c.ok) return
+      commit(c.aplicar(ref.current))
+      // sessão aberta no modo de demonstração (sem a API) e a API agora responde:
+      // encerra, para o próximo login usar o banco em vez dos dados do navegador
+      if (!token && sessao.perfil !== "publico") {
         setSessao({ perfil: "publico", usuarioId: null })
         setAlertaLogin(false)
       }
-    })
+    })()
   }, []) // só na abertura
 
   // Rotina diária (vencimentos, reservas, fila, notificações) + backup automático (RNF05)
@@ -307,7 +493,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const atual = ref.current
       const hoje = hojeISO()
       const agora = new Date()
-      const { estado: novo, relatorio: rel } = aplicarRotinas(atual, hoje, agora.toISOString(), agora.getHours())
+      const { estado: novo, relatorio: rel } = aplicarRotinas(atual, hoje, agora.toISOString(), agora.getHours(), {
+        expirarReservas: !sessaoRef.current.token,
+      })
       const mudou =
         rel.notificacoes + rel.reservasExpiradas + rel.filaExpirada + rel.contemplados > 0 ||
         atual.ultimaRotina !== hoje
@@ -354,6 +542,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const ehSocio = () => sessao.perfil === "socio"
     const agora = () => agoraISO()
 
+    // Sessão aberta pela API: acervo, circulação, sócios e repositório vivem no
+    // banco e as ações dessas áreas passam por ela (mesas, mural, doações,
+    // notificações e backups ainda são locais)
+    const viaApi = () => sessao.perfil === "admin" && !!sessao.token
+    const socioViaApi = () => sessao.perfil === "socio" && !!sessao.token
+    const falhaDaApi = (r: Exclude<RespostaApi<unknown>, { tipo: "ok" }>): Resultado => {
+      if (r.tipo === "indisponivel") {
+        return falha("Servidor indisponível: não foi possível gravar no banco de dados. Tente novamente.")
+      }
+      if (r.status === 401) {
+        setSessao({ perfil: "publico", usuarioId: null })
+        setAlertaLogin(false)
+        return falha("Sessão expirada. Entre novamente.")
+      }
+      return falha(r.mensagem)
+    }
+    // copia uma obra gravada no banco para o estado local (autores incluídos)
+    const espelharLivro = (atual: Estado, l: LivroApi): Estado => {
+      const autores = [...atual.autores]
+      for (const a of l.autores) if (!autores.some((x) => x.id === a.id)) autores.push(a)
+      const livro: Livro = {
+        id: l.id,
+        titulo: l.titulo,
+        autorIds: l.autores.map((a) => a.id),
+        editora: l.editora,
+        edicao: l.edicao,
+        ano: l.ano,
+        categoria: l.categoria,
+        secao: l.secao,
+        isbn: l.isbn,
+        sinopse: l.sinopse,
+      }
+      const existe = atual.livros.some((x) => x.id === livro.id)
+      return {
+        ...atual,
+        autores,
+        livros: existe ? atual.livros.map((x) => (x.id === livro.id ? livro : x)) : [...atual.livros, livro],
+      }
+    }
+
     // -------------------- seletores --------------------
     const getLivro = (id: string) => e.livros.find((l) => l.id === id)
     const getSocio = (id: string) => e.socios.find((s) => s.id === id)
@@ -397,13 +625,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Abre a sessão com a resposta da API (login ou cadastro). O restante do app
     // ainda usa os dados do navegador, então o cadastro vindo do banco é copiado
     // para o registro local equivalente (mesmo CPF ou usuário), ou cria um novo.
-    const abrirSessaoDaApi = (
+    const abrirSessaoDaApi = async (
       dados: LoginApi,
       senha: string,
       loginDigitado: string,
-    ): Resultado & { perfil?: PerfilUsuario } => {
+    ): Promise<Resultado & { perfil?: PerfilUsuario }> => {
       const { token, usuario: conta, cadastro, mensagem } = dados
       const u = loginDigitado
+
+      // os dados do perfil vêm do banco (carregados antes de abrir a sessão,
+      // para a tela nunca mostrar um acervo e gravar em outro)
+      const carga = await carregarDoBanco(conta.perfil, token)
+      if (!carga.ok) return falha(carga.mensagem)
       const atual = ref.current
       // a senha local acompanha a do banco, para o modo de demonstração continuar valendo
       const senhaLocal = hashSenha(senha)
@@ -412,21 +645,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const login = "usuario" in cadastro ? cadastro.usuario : u
         const existente = atual.administradores.find((a) => normalizar(a.usuario) === normalizar(login))
         const admin: Administrador = { id: existente?.id ?? conta.id, nome: conta.nome, usuario: login, senha: senhaLocal }
-        commit({
+        const comAdmin: Estado = {
           ...atual,
           administradores: existente
             ? atual.administradores.map((a) => (a.id === existente.id ? admin : a))
             : [...atual.administradores, admin],
-        })
+        }
+        commit(carga.aplicar(comAdmin))
         setSessao({ perfil: "admin", usuarioId: admin.id, loginEm: agora(), token })
         return { ...ok(mensagem), perfil: "admin" }
       }
 
       if (!("cpf" in cadastro)) return falha("Resposta inesperada do servidor. Tente novamente.")
+      // o sócio passa a ter no navegador o mesmo id do banco (empréstimos e multas apontam para ele)
       const existente = atual.socios.find((s) => !s.anonimizado && s.cpf === cadastro.cpf)
       const socio: SocioLeitor = {
         ...existente, // mantém o que só existe no navegador (ex.: foto)
-        id: existente?.id ?? conta.id,
+        id: conta.id,
         nome: conta.nome,
         cpf: cadastro.cpf,
         rg: cadastro.rg,
@@ -438,10 +673,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         dataCadastro: cadastro.dataCadastro || existente?.dataCadastro || hoje,
         consentimentoLgpd: cadastro.consentimentoLgpd,
       }
-      const novo = {
+      const comSocio = {
         ...atual,
-        socios: existente ? atual.socios.map((s) => (s.id === existente.id ? socio : s)) : [...atual.socios, socio],
+        socios: [...atual.socios.filter((s) => s !== existente && s.id !== socio.id), socio],
       }
+      const novo = carga.aplicar(comSocio, senhaLocal)
       commit(novo)
       setSessao({ perfil: "socio", usuarioId: socio.id, loginEm: agora(), token })
       // RN11: alerta se o banco ou os dados locais apontarem pendências
@@ -464,7 +700,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return local.ok ? { ...local, mensagem: `${local.mensagem} ${AVISO_SEM_SERVIDOR}` } : local
       }
       if (r.tipo === "erro") return falha(r.mensagem)
-      return abrirSessaoDaApi(r.dados, senha, u)
+      return await abrirSessaoDaApi(r.dados, senha, u)
     }
 
     // Cadastro feito pelo próprio visitante: grava o sócio-leitor no banco pela
@@ -477,7 +713,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return local.ok ? { ...local, mensagem: `${local.mensagem} ${AVISO_SEM_SERVIDOR}` } : local
       }
       if (r.tipo === "erro") return falha(r.mensagem)
-      return abrirSessaoDaApi(r.dados, d.senha ?? "", d.cpf)
+      return await abrirSessaoDaApi(r.dados, d.senha ?? "", d.cpf)
     }
 
     // Cadastro só no navegador (usado quando a API não responde)
@@ -528,7 +764,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { autores, ids }
     }
 
-    const salvarLivro = (dados: DadosLivro, id?: string): Resultado => {
+    const salvarLivro = async (dados: DadosLivro, id?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO) // RN15
       const atual = ref.current
       const titulo = dados.titulo.trim()
@@ -547,6 +783,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const chaveIsbn = dados.isbn.replace(/[-\s]/g, "")
       const duplicado = atual.livros.find((l) => l.id !== id && l.isbn.replace(/[-\s]/g, "") === chaveIsbn)
       if (duplicado) return falha(`Já existe uma obra com este ISBN: "${duplicado.titulo}".`)
+
+      if (viaApi()) {
+        const r = await salvarLivroNaApi(sessao.token!, { ...dados, titulo, secao }, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit(espelharLivro(ref.current, r.dados.livro))
+        return ok(r.dados.mensagem)
+      }
 
       const nomes = dados.autores.map((n) => n.trim()).filter(Boolean)
       const { autores, ids } = resolverAutores(atual, nomes)
@@ -570,7 +813,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(id ? "Obra atualizada." : "Obra cadastrada. Agora cadastre os exemplares (RN16).")
     }
 
-    const excluirLivro = (id: string): Resultado => {
+    const excluirLivro = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const exs = atual.exemplares.filter((x) => x.livroId === id)
@@ -584,10 +827,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (atual.arquivos.some((a) => a.vinculo.tipo === "livro" && a.vinculo.livroId === id)) {
         return falha("Há digitalizações vinculadas a esta obra no repositório. Remova-as antes.")
       }
+      if (viaApi()) {
+        const r = await excluirLivroNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+      }
       commit({
-        ...atual,
-        livros: atual.livros.filter((l) => l.id !== id),
-        exemplares: atual.exemplares.filter((x) => x.livroId !== id),
+        ...ref.current,
+        livros: ref.current.livros.filter((l) => l.id !== id),
+        exemplares: ref.current.exemplares.filter((x) => x.livroId !== id),
       })
       return ok("Obra excluída.")
     }
@@ -595,7 +842,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const tombamentoEmUso = (atual: Estado, tomb: string, ignorarId?: string) =>
       atual.exemplares.some((x) => x.id !== ignorarId && normalizar(x.tombamento) === normalizar(tomb))
 
-    const adicionarExemplares = (livroId: string, tombamentos: string[]): Resultado => {
+    const adicionarExemplares = async (livroId: string, tombamentos: string[], localizacao?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO) // RN15
       const atual = ref.current
       if (!atual.livros.some((l) => l.id === livroId)) {
@@ -606,23 +853,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (new Set(lista).size !== lista.length) return falha("Há códigos de tombamento repetidos na lista.")
       const emUso = lista.find((t) => tombamentoEmUso(atual, t))
       if (emUso) return falha(`O tombamento ${emUso} já pertence a outro exemplar.`)
+      const local = localizacao?.trim() ?? ""
+      if (local.length > 80) return falha("Localização muito longa (máximo de 80 caracteres).")
+      if (viaApi()) {
+        const r = await adicionarExemplaresNaApi(sessao.token!, livroId, lista, local || undefined)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, exemplares: [...ref.current.exemplares, ...r.dados.exemplares.map(exemplarDaApi)] })
+        return ok(r.dados.mensagem)
+      }
       const novos: Exemplar[] = lista.map((tombamento) => ({
         id: uuid(), // RN20
         livroId,
         tombamento,
         status: "disponivel",
+        ...(local ? { localizacao: local } : {}),
       }))
       commit({ ...atual, exemplares: [...atual.exemplares, ...novos] })
       return ok(`${novos.length} exemplar(es) cadastrado(s) com identificador único (UUID).`)
     }
 
-    const editarExemplar = (id: string, dados: { tombamento: string; status: StatusExemplar }): Resultado => {
+    const editarExemplar = async (
+      id: string,
+      dados: { tombamento: string; status: StatusExemplar; localizacao?: string },
+    ): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO) // RN12
       const atual = ref.current
       const ex = atual.exemplares.find((x) => x.id === id)
       if (!ex) return falha("Exemplar não encontrado.")
       const tomb = dados.tombamento.trim().toUpperCase()
       if (!tomb) return falha("Informe o código de tombamento.")
+      // sem localização informada, mantém a atual
+      const local = dados.localizacao === undefined ? ex.localizacao ?? "" : dados.localizacao.trim()
+      if (local.length > 80) return falha("Localização muito longa (máximo de 80 caracteres).")
       if (tombamentoEmUso(atual, tomb, id)) return falha(`O tombamento ${tomb} já pertence a outro exemplar.`)
       if (dados.status !== ex.status) {
         if (emprestimoAtivoDoExemplar(atual, id)) {
@@ -635,14 +897,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return falha('O status "Reservado" é definido pela reserva de um sócio-leitor.')
         }
       }
+      if (viaApi()) {
+        // só envia o status se mudou: o status "reservado" de reservas locais não existe no banco
+        const mudouStatus = dados.status !== ex.status
+        const r = await editarExemplarNaApi(sessao.token!, id, {
+          tombamento: tomb,
+          localizacao: local,
+          ...(mudouStatus ? { status: dados.status } : {}),
+        })
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const novo = r.dados.exemplar
+        commit({
+          ...ref.current,
+          exemplares: ref.current.exemplares.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  tombamento: novo.tombamento,
+                  localizacao: novo.localizacao,
+                  ...(mudouStatus ? { status: novo.status } : {}),
+                }
+              : x,
+          ),
+        })
+        return ok(r.dados.mensagem)
+      }
       commit({
         ...atual,
-        exemplares: atual.exemplares.map((x) => (x.id === id ? { ...x, tombamento: tomb, status: dados.status } : x)),
+        exemplares: atual.exemplares.map((x) =>
+          x.id === id ? { ...x, tombamento: tomb, status: dados.status, localizacao: local || undefined } : x,
+        ),
       })
       return ok("Exemplar atualizado.")
     }
 
-    const excluirExemplar = (id: string): Resultado => {
+    const excluirExemplar = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const temHistorico =
@@ -650,11 +939,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (temHistorico) {
         return falha("O exemplar tem histórico de circulação. Para retirá-lo do acervo, use o desbastamento.")
       }
-      commit({ ...atual, exemplares: atual.exemplares.filter((x) => x.id !== id) })
+      if (viaApi()) {
+        const r = await excluirExemplarNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+      }
+      commit({ ...ref.current, exemplares: ref.current.exemplares.filter((x) => x.id !== id) })
       return ok("Exemplar excluído (cadastro feito por engano).")
     }
 
-    const desbastarExemplar = (id: string, relatorioTexto: string): Resultado => {
+    const desbastarExemplar = async (id: string, relatorioTexto: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const ex = atual.exemplares.find((x) => x.id === id)
@@ -669,6 +962,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (relatorioTexto.trim().length < MIN_JUSTIFICATIVA) {
         return falha(`Anexe o relatório justificando o desbastamento (mínimo ${MIN_JUSTIFICATIVA} caracteres) (RN24).`)
       }
+      if (viaApi()) {
+        const r = await desbastarNaApi(sessao.token!, id, relatorioTexto.trim())
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const reg = r.dados.desbaste
+        commit({
+          ...ref.current,
+          exemplares: ref.current.exemplares.map((x) =>
+            x.id === id ? { ...x, baixa: { data: reg.data, motivo: "desbaste" } } : x,
+          ),
+          desbastes: [reg, ...ref.current.desbastes],
+        })
+        return ok(r.dados.mensagem)
+      }
       const registro: Desbaste = {
         id: uuid(),
         exemplarId: id,
@@ -677,6 +983,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         statusAnterior: ex.status,
         relatorio: relatorioTexto.trim(),
         data: hoje,
+        admin: adminLogado?.nome,
       }
       commit({
         ...atual,
@@ -692,7 +999,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!cpfValido(d.cpf)) return "CPF inválido."
       const cpf = somenteDigitos(d.cpf)
       if (atual.socios.some((s) => s.id !== id && s.cpf === cpf)) return "Já existe um sócio-leitor com este CPF."
-      if (!d.rg.trim()) return "Informe o RG."
       if (!telefoneValido(d.telefone)) return "Telefone inválido. Use DDD + número."
       if (!emailValido(d.email)) return "E-mail inválido."
       if (atual.socios.some((s) => s.id !== id && s.email && normalizar(s.email) === normalizar(d.email))) {
@@ -706,11 +1012,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return null
     }
 
-    const salvarSocio = (d: DadosSocio, id?: string): Resultado => {
+    const salvarSocio = async (d: DadosSocio, id?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO) // RN29
       const atual = ref.current
       const erro = validarSocio(atual, d, id)
       if (erro) return falha(erro)
+      if (viaApi()) {
+        // a foto antiga é apagada pelo servidor
+        const r = await salvarSocioNaApi(sessao.token!, d, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, socios: trocar(ref.current.socios, r.dados.socio) })
+        return ok(r.dados.mensagem)
+      }
       const base = {
         nome: d.nome.trim(),
         cpf: somenteDigitos(d.cpf),
@@ -749,8 +1062,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok("Sócio-leitor cadastrado.")
     }
 
-    const alternarAtivoSocio = (id: string): Resultado => {
+    const alternarAtivoSocio = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await alternarAtivoSocioNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, socios: trocar(ref.current.socios, r.dados.socio) })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const s = atual.socios.find((x) => x.id === id)
       if (!s) return falha("Sócio-leitor não encontrado.")
@@ -762,17 +1081,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(s.ativo ? "Sócio-leitor inativado." : "Sócio-leitor reativado.")
     }
 
-    const redefinirSenhaSocio = (id: string, novaSenha: string): Resultado => {
+    const redefinirSenhaSocio = async (id: string, novaSenha: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       if (novaSenha.length < 6) return falha("A senha deve ter ao menos 6 caracteres.")
+      if (viaApi()) {
+        const r = await redefinirSenhaSocioNaApi(sessao.token!, id, novaSenha)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const depois = ref.current
+        commit({ ...depois, socios: depois.socios.map((s) => (s.id === id ? { ...s, senha: hashSenha(novaSenha) } : s)) })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       commit({ ...atual, socios: atual.socios.map((s) => (s.id === id ? { ...s, senha: hashSenha(novaSenha) } : s)) })
       return ok("Senha redefinida. Informe a nova senha ao sócio-leitor.")
     }
 
     // RNF06 / LGPD: eliminação dos dados pessoais a pedido do titular
-    const anonimizarSocio = (id: string): Resultado => {
+    const anonimizarSocio = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await anonimizarSocioNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const depois = ref.current
+        const liberados = new Set(depois.reservas.filter((x) => x.socioId === id && x.status === "ativa").map((x) => x.exemplarId))
+        commit({
+          ...depois,
+          socios: trocar(depois.socios, r.dados.socio),
+          reservas: depois.reservas.map((x) => (x.socioId === id && x.status === "ativa" ? { ...x, status: "cancelada" } : x)),
+          exemplares: depois.exemplares.map((x) => (liberados.has(x.id) && x.status === "reservado" ? { ...x, status: "disponivel" } : x)),
+          fila: depois.fila.map((f) => (f.socioId === id && f.status === "aguardando" ? { ...f, status: "desistiu" } : f)),
+        })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const s = atual.socios.find((x) => x.id === id)
       if (!s) return falha("Sócio-leitor não encontrado.")
@@ -806,8 +1146,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // -------------------- circulação --------------------
-    const realizarEmprestimo = (socioId: string, exemplarId: string): Resultado => {
+    // Com a sessão pela API, o servidor aplica as regras (as mesmas destas ações)
+    // e a resposta é copiada para o estado local
+    const espelharEmprestimo = (emp: Emprestimo, statusExemplar?: StatusExemplar) => {
+      const atual = ref.current
+      commit({
+        ...atual,
+        emprestimos: trocar(atual.emprestimos, emp),
+        exemplares: statusExemplar
+          ? atual.exemplares.map((x) => (x.id === emp.exemplarId ? { ...x, status: statusExemplar } : x))
+          : atual.exemplares,
+        // a retirada da reserva é registrada pelo banco junto com o empréstimo
+        reservas:
+          statusExemplar === "indisponivel"
+            ? atual.reservas.map((r) =>
+                r.exemplarId === emp.exemplarId && r.socioId === emp.socioId && r.status === "ativa"
+                  ? { ...r, status: "retirada" }
+                  : r,
+              )
+            : atual.reservas,
+      })
+    }
+    const espelharMulta = (m: Multa) => commit({ ...ref.current, multas: trocar(ref.current.multas, m) })
+
+    const realizarEmprestimo = async (socioId: string, exemplarId: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO) // RN27
+      if (viaApi()) {
+        const r = await emprestarNaApi(sessao.token!, socioId, exemplarId)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharEmprestimo(r.dados.emprestimo, "indisponivel")
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
       // RN06: somente sócios-leitores ativos
@@ -861,8 +1230,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(`Empréstimo registrado. Devolução prevista para ${emp.dataPrevista.split("-").reverse().join("/")}.`)
     }
 
-    const renovarEmprestimo = (id: string): Resultado => {
+    const renovarEmprestimo = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO) // RN27
+      if (viaApi()) {
+        const r = await renovarNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharEmprestimo(r.dados.emprestimo)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const emp = atual.emprestimos.find((x) => x.id === id)
       if (!emp || emp.status !== "ativo") return falha("Somente empréstimos em andamento podem ser renovados.")
@@ -887,8 +1262,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(`Empréstimo renovado por mais ${PRAZO_EMPRESTIMO_DIAS} dias (${emp.renovacoes + 1}/${MAX_RENOVACOES}).`)
     }
 
-    const alterarEmprestimo = (id: string, novaDataPrevista: string, motivo: string): Resultado => {
+    const alterarEmprestimo = async (id: string, novaDataPrevista: string, motivo: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await alterarEmprestimoNaApi(sessao.token!, id, novaDataPrevista, motivo)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharEmprestimo(r.dados.emprestimo)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const emp = atual.emprestimos.find((x) => x.id === id)
       if (!emp || emp.status !== "ativo") return falha("Somente empréstimos em andamento podem ser alterados.")
@@ -914,8 +1295,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok("Empréstimo alterado. A alteração ficou registrada no histórico.")
     }
 
-    const cancelarEmprestimo = (id: string, motivo: string): Resultado => {
+    const cancelarEmprestimo = async (id: string, motivo: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await cancelarEmprestimoNaApi(sessao.token!, id, motivo)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharEmprestimo(r.dados.emprestimo, "disponivel")
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const emp = atual.emprestimos.find((x) => x.id === id)
       if (!emp || emp.status !== "ativo") return falha("Somente empréstimos em andamento podem ser cancelados.")
@@ -937,7 +1324,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok("Empréstimo cancelado. O exemplar voltou a ficar disponível.")
     }
 
-    const devolverEmprestimo = (id: string, dano?: DadosDano): Resultado => {
+    const devolverEmprestimo = async (id: string, dano?: DadosDano): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const emp = atual.emprestimos.find((x) => x.id === id)
@@ -947,6 +1334,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return falha(`Descreva o dano no relatório (mínimo ${MIN_JUSTIFICATIVA} caracteres) (RF15).`)
         }
         if (!(dano.valor > 0)) return falha("Informe o valor da multa pelo dano (RN13).")
+      }
+      if (viaApi()) {
+        // RN03 (multa por atraso) e RF15 (dano) calculados no servidor
+        const r = await devolverNaApi(sessao.token!, id, dano ? { ...dano, relatorio: dano.relatorio.trim() } : undefined)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharEmprestimo(r.dados.emprestimo, dano ? "danificado" : "disponivel")
+        const depois = ref.current
+        const oc = r.dados.ocorrencia
+        commit({
+          ...depois,
+          multas: [...depois.multas.filter((m) => !r.dados.multas.some((n) => n.id === m.id)), ...r.dados.multas],
+          ocorrencias: oc ? [oc, ...depois.ocorrencias] : depois.ocorrencias,
+        })
+        return ok(r.dados.mensagem)
       }
 
       const novasMultas: Multa[] = []
@@ -1018,8 +1419,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(partes.join(" "))
     }
 
-    const quitarMulta = (id: string): Resultado => {
+    const quitarMulta = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await quitarMultaNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharMulta(r.dados.multa)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const m = atual.multas.find((x) => x.id === id)
       if (!m || (m.status !== "pendente" && m.status !== "em_analise")) return falha("Multa não está em aberto.")
@@ -1031,7 +1438,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // RN07: justificativa registrada pelo sócio-leitor (ou pelo balcão, em nome dele)
-    const registrarJustificativa = (multaId: string, texto: string): Resultado => {
+    const registrarJustificativa = async (multaId: string, texto: string): Promise<Resultado> => {
       const atual = ref.current
       const m = atual.multas.find((x) => x.id === multaId)
       if (!m) return falha("Multa não encontrada.")
@@ -1040,6 +1447,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (m.status !== "pendente") return falha("Só é possível justificar uma multa pendente.")
       if (texto.trim().length < MIN_JUSTIFICATIVA) {
         return falha(`Escreva uma justificativa fundamentada (mínimo ${MIN_JUSTIFICATIVA} caracteres).`)
+      }
+      if (viaApi() || socioViaApi()) {
+        const r = await justificarMultaNaApi(sessao.token!, multaId, texto.trim())
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharMulta(r.dados.multa)
+        return ok(r.dados.mensagem)
       }
       commit({
         ...atual,
@@ -1050,16 +1463,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok("Justificativa enviada. Ela será avaliada pela administração da biblioteca.")
     }
 
-    const julgarJustificativa = (
+    const julgarJustificativa = async (
       multaId: string,
       decisao: "deferido" | "indeferido",
       parecer: string,
-    ): Resultado => {
+    ): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const m = atual.multas.find((x) => x.id === multaId)
       if (!m || m.status !== "em_analise" || !m.justificativa) return falha("Não há justificativa aguardando julgamento.")
       if (parecer.trim().length < 10) return falha("Registre o parecer da decisão (mínimo 10 caracteres).")
+      if (viaApi()) {
+        const r = await julgarMultaNaApi(sessao.token!, multaId, decisao, parecer.trim())
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        espelharMulta(r.dados.multa)
+        return ok(r.dados.mensagem)
+      }
       commit({
         ...atual,
         multas: atual.multas.map((x) =>
@@ -1088,10 +1507,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // -------------------- reservas --------------------
-    const reservarLivro = (livroId: string, socioIdParam?: string): Resultado => {
+    const reservarLivro = async (livroId: string, socioIdParam?: string): Promise<Resultado> => {
       const socioId = ehSocio() ? sessao.usuarioId : socioIdParam
       if (!ehAdmin() && !ehSocio()) return falha("Entre como sócio-leitor para reservar (RN06).")
       if (!socioId) return falha("Selecione o sócio-leitor.")
+      if (viaApi() || socioViaApi()) {
+        const r = await reservarNaApi(sessao.token!, livroId, ehAdmin() ? socioId : undefined)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const reserva = r.dados.reserva
+        const depois = ref.current
+        commit({
+          ...depois,
+          reservas: trocar(depois.reservas, reserva),
+          exemplares: depois.exemplares.map((x) => (x.id === reserva.exemplarId ? { ...x, status: "reservado" } : x)),
+        })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
       if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem reservar (RN06).")
@@ -1127,11 +1558,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(`Reserva confirmada. Retire o livro no balcão até ${reserva.expiraEm.split("-").reverse().join("/")}.`)
     }
 
-    const cancelarReserva = (id: string): Resultado => {
+    const cancelarReserva = async (id: string): Promise<Resultado> => {
       const atual = ref.current
       const r = atual.reservas.find((x) => x.id === id)
       if (!r || r.status !== "ativa") return falha("Reserva não está ativa.")
       if (!ehAdmin() && !(ehSocio() && sessao.usuarioId === r.socioId)) return falha(NEGADO) // RN28
+      if (viaApi() || socioViaApi()) {
+        const resp = await cancelarReservaNaApi(sessao.token!, id)
+        if (resp.tipo !== "ok") return falhaDaApi(resp)
+        const depois = ref.current
+        commit({
+          ...depois,
+          reservas: trocar(depois.reservas, resp.dados.reserva),
+          exemplares: depois.exemplares.map((x) =>
+            x.id === r.exemplarId && x.status === "reservado" ? { ...x, status: "disponivel" } : x,
+          ),
+        })
+        return ok(resp.dados.mensagem)
+      }
       commit({
         ...atual,
         reservas: atual.reservas.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)),
@@ -1322,6 +1766,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const registrarDoacao = (receptorId: string, exemplarIds: string[], observacao?: string): Resultado => {
       if (!ehAdmin()) return falha(NEGADO)
+      // a baixa por doação ainda não existe na API: gravar só no navegador faria o
+      // exemplar voltar ao acervo no próximo login
+      if (viaApi()) {
+        return falha("Doações ainda não são gravadas no banco de dados. Registre-as sem entrar pela API.")
+      }
       const atual = ref.current
       // RN25: receptor precisa estar cadastrado
       const receptor = atual.instituicoes.find((i) => i.id === receptorId)
@@ -1362,17 +1811,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(`Doação registrada para ${receptor.nome}.`)
     }
 
-    const registrarAquisicao = (
+    const registrarAquisicao = async (
       receptorId: string,
       livroId: string,
       tombamentos: string[],
       observacao?: string,
-    ): Resultado => {
+    ): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const receptor = atual.instituicoes.find((i) => i.id === receptorId)
       if (!receptor) return falha("A instituição ou pessoa de origem precisa estar cadastrada (RN25).")
-      const r = adicionarExemplares(livroId, tombamentos) // RN16 / RN20
+      const r = await adicionarExemplares(livroId, tombamentos) // RN16 / RN20
       if (!r.ok) return r
       const depois = ref.current
       const mov: Movimentacao = {
@@ -1389,7 +1838,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // -------------------- repositório --------------------
-    const adicionarArquivo = (arq: Omit<ArquivoDigital, "id" | "dataUpload">, idArmazenado: string): Resultado => {
+    // Com a sessão pela API, o arquivo já foi enviado ao servidor (S3) e
+    // idArmazenado é o id gerado pelo banco
+    const adicionarArquivo = async (
+      arq: Omit<ArquivoDigital, "id" | "dataUpload">,
+      idArmazenado: string,
+    ): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       if (arq.titulo.trim().length < 3) return falha("Informe o título do arquivo.")
@@ -1399,23 +1853,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (arq.vinculo.tipo === "pasta" && !atual.pastas.some((p) => p.id === (arq.vinculo as { pastaId: string }).pastaId)) {
         return falha("A pasta vinculada não está cadastrada (RF08).")
       }
+      if (viaApi()) {
+        const r = await anexarDocumentoNaApi(sessao.token!, idArmazenado, { ...arq, titulo: arq.titulo.trim() })
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, arquivos: trocar(ref.current.arquivos, r.dados.documento) })
+        return ok(r.dados.mensagem)
+      }
       const novo: ArquivoDigital = { ...arq, titulo: arq.titulo.trim(), id: idArmazenado, dataUpload: hoje }
       commit({ ...atual, arquivos: [novo, ...atual.arquivos] })
       return ok("Arquivo anexado e comprimido para armazenamento (RNF13).")
     }
 
-    const excluirArquivo = (id: string): Resultado => {
+    const excluirArquivo = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await excluirDocumentoNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, arquivos: ref.current.arquivos.filter((a) => a.id !== id) })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       removerArquivos([id])
       commit({ ...atual, arquivos: atual.arquivos.filter((a) => a.id !== id) })
       return ok("Arquivo removido do repositório.")
     }
 
-    const salvarPasta = (d: Omit<PastaHistorica, "id">, id?: string): Resultado => {
+    const salvarPasta = async (d: Omit<PastaHistorica, "id">, id?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       if (d.nome.trim().length < 3) return falha("Informe o nome da pasta.")
+      if (viaApi()) {
+        const r = await salvarPastaNaApi(sessao.token!, { nome: d.nome.trim(), descricao: d.descricao.trim() }, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const depois = ref.current
+        const pasta = r.dados.pasta
+        commit({
+          ...depois,
+          pastas: depois.pastas.some((p) => p.id === pasta.id)
+            ? depois.pastas.map((p) => (p.id === pasta.id ? pasta : p))
+            : [...depois.pastas, pasta],
+        })
+        return ok(r.dados.mensagem)
+      }
       const pasta = { id: id ?? uuid(), nome: d.nome.trim(), descricao: d.descricao.trim() }
       commit({
         ...atual,
@@ -1424,24 +1903,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(id ? "Pasta atualizada." : "Pasta de recortes cadastrada.")
     }
 
-    const excluirPasta = (id: string): Resultado => {
+    const excluirPasta = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       if (atual.arquivos.some((a) => a.vinculo.tipo === "pasta" && a.vinculo.pastaId === id)) {
         return falha("A pasta possui arquivos. Remova-os antes de excluir a pasta.")
+      }
+      if (viaApi()) {
+        const r = await excluirPastaNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, pastas: ref.current.pastas.filter((p) => p.id !== id) })
+        return ok(r.dados.mensagem)
       }
       commit({ ...atual, pastas: atual.pastas.filter((p) => p.id !== id) })
       return ok("Pasta excluída.")
     }
 
     // -------------------- mural --------------------
-    const salvarPublicacao = (d: Omit<Publicacao, "id">, id?: string): Resultado => {
+    const salvarPublicacao = async (d: Omit<Publicacao, "id">, id?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       if (d.titulo.trim().length < 3) return falha("Informe o título da publicação.")
       // RF12: descrição e/ou imagem
       if (!d.descricao.trim() && d.imagemIds.length === 0) return falha("Informe uma descrição e/ou anexe imagem(ns).")
       if (!d.data) return falha("Informe a data da publicação ou do evento.")
+      if (viaApi()) {
+        // as imagens retiradas da publicação são apagadas pelo servidor
+        const r = await salvarPublicacaoNaApi(
+          sessao.token!,
+          { ...d, titulo: d.titulo.trim(), descricao: d.descricao.trim() },
+          id,
+        )
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, publicacoes: trocar(ref.current.publicacoes, r.dados.publicacao) })
+        return ok(r.dados.mensagem)
+      }
       const pub: Publicacao = { ...d, id: id ?? uuid(), titulo: d.titulo.trim(), descricao: d.descricao.trim() }
       if (id) {
         const anterior = atual.publicacoes.find((p) => p.id === id)
@@ -1455,8 +1951,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(id ? "Publicação atualizada." : "Publicação adicionada ao mural.")
     }
 
-    const excluirPublicacao = (id: string): Resultado => {
+    const excluirPublicacao = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await excluirPublicacaoNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, publicacoes: ref.current.publicacoes.filter((p) => p.id !== id) })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const pub = atual.publicacoes.find((p) => p.id === id)
       if (pub) removerArquivos(pub.imagemIds)
@@ -1465,7 +1967,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // -------------------- importação CSV --------------------
-    const importarObras = (linhas: LinhaObra[]): ResultadoImportacao => {
+    const importarObras = async (linhas: LinhaObra[]): Promise<ResultadoImportacao> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       const erros: ErroLinha[] = []
@@ -1478,6 +1980,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       if (erros.length > 0) {
         return { ok: false, mensagem: "Importação cancelada: há conflitos com o acervo atual.", erros }
+      }
+      if (viaApi()) {
+        const r = await importarObrasNaApi(
+          sessao.token!,
+          linhas.map((l) => ({
+            titulo: l.titulo,
+            autores: l.autores,
+            editora: l.editora,
+            edicao: l.edicao,
+            ano: l.ano,
+            categoria: l.categoria,
+            secao: l.secao,
+            isbn: l.isbn,
+            tombamentos: l.tombamentos,
+            linha: l.linha,
+          })),
+        )
+        if (r.tipo !== "ok") {
+          const f = falhaDaApi(r)
+          // a API cita a linha do erro ("Linha 4: ..."): mostra na lista de erros da tela
+          const m = /^Linha (\d+): (.*)$/s.exec(f.mensagem)
+          return m
+            ? { ok: false, mensagem: "Importação cancelada: nada foi gravado.", erros: [{ linha: Number(m[1]), mensagem: m[2] }] }
+            : f
+        }
+        let novo = ref.current
+        for (const l of r.dados.livros) novo = espelharLivro(novo, l)
+        commit({ ...novo, exemplares: [...novo.exemplares, ...r.dados.exemplares.map(exemplarDaApi)] })
+        return ok(r.dados.mensagem)
       }
       let autores = atual.autores
       const livros: Livro[] = []
@@ -1512,6 +2043,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const importarSocios = (linhas: LinhaSocio[]): ResultadoImportacao => {
       if (!ehAdmin()) return falha(NEGADO)
+      // sem consentimento LGPD na planilha, o banco não aceita o cadastro
+      if (viaApi()) {
+        return falha(
+          "Com o banco de dados conectado, cadastre os sócios-leitores pela tela Sócios-leitores: a importação por planilha grava só no modo de demonstração.",
+        )
+      }
       const atual = ref.current
       const erros: ErroLinha[] = []
       for (const l of linhas) {

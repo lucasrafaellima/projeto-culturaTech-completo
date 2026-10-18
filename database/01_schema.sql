@@ -30,7 +30,7 @@ CREATE TABLE arquivo (
     nome_arquivo        VARCHAR(255) NOT NULL,
     mime                VARCHAR(100) NOT NULL
                         CHECK (mime IN ('image/webp', 'image/jpeg', 'image/png', 'application/pdf')),
-    chave_storage       VARCHAR(500) NOT NULL UNIQUE, -- ex.: s3://culturatech-arquivos/<uuid>.webp
+    chave_storage       VARCHAR(500) NOT NULL UNIQUE, -- chave no S3: <pasta>/<uuid>.<extensão>, ex.: acervo/<uuid>.pdf
     tamanho_original    BIGINT NOT NULL CHECK (tamanho_original >= 0),
     tamanho_armazenado  BIGINT NOT NULL CHECK (tamanho_armazenado >= 0),
     compressao          VARCHAR(10) NOT NULL DEFAULT 'nenhuma'
@@ -127,6 +127,7 @@ CREATE TABLE exemplar (
                   CHECK (status IN ('disponivel', 'reservado', 'em_restauro', 'indisponivel',
                                     'extraviado', 'ocioso', 'danificado')),
     data_entrada  DATE NOT NULL DEFAULT CURRENT_DATE,
+    localizacao   VARCHAR(80), -- onde a cópia fica (ex.: Estante 3, prateleira B)
     baixa_data    DATE,
     baixa_motivo  VARCHAR(10) CHECK (baixa_motivo IN ('desbaste', 'doacao')),
     CONSTRAINT ck_exemplar_baixa CHECK ((baixa_data IS NULL) = (baixa_motivo IS NULL))

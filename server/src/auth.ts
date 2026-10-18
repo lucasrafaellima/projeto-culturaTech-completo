@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
+import type { NextFunction, Request, Response } from "express"
 import { config } from "./config.ts"
 import { pool } from "./db.ts"
 
@@ -167,4 +168,42 @@ export async function usuarioDoToken(token: string): Promise<UsuarioLogado | nul
   const usuario: UsuarioLogado = { id: registro.id, nome: registro.nome, perfil }
   if (perfil === "socio") usuario.pendencias = Boolean(registro.pendencias)
   return usuario
+}
+
+async function usuarioDaRequisicao(req: Request): Promise<UsuarioLogado | null> {
+  const [tipo, token] = (req.headers.authorization ?? "").split(" ")
+  return tipo === "Bearer" && token ? usuarioDoToken(token) : null
+}
+
+// Middleware: guarda em res.locals.usuario o usuário do token, se houver um válido
+export async function usuarioOpcional(req: Request, res: Response, next: NextFunction) {
+  res.locals.usuario = await usuarioDaRequisicao(req)
+  next()
+}
+
+// Middleware: administrador ou sócio-leitor com token válido e cadastro ativo
+export async function exigirLogin(req: Request, res: Response, next: NextFunction) {
+  const usuario = await usuarioDaRequisicao(req)
+  if (!usuario) {
+    res.status(401).json({ ok: false, mensagem: "Sessão inválida ou expirada. Entre novamente." })
+    return
+  }
+  res.locals.usuario = usuario
+  next()
+}
+
+// Middleware: só deixa passar administrador com token válido e cadastro ativo.
+// O usuário fica em res.locals.usuario para as rotas seguintes.
+export async function exigirAdmin(req: Request, res: Response, next: NextFunction) {
+  const usuario = await usuarioDaRequisicao(req)
+  if (!usuario) {
+    res.status(401).json({ ok: false, mensagem: "Sessão inválida ou expirada. Entre novamente." })
+    return
+  }
+  if (usuario.perfil !== "admin") {
+    res.status(403).json({ ok: false, mensagem: "Acesso negado: operação permitida só para administradores (RN15)." })
+    return
+  }
+  res.locals.usuario = usuario
+  next()
 }

@@ -36,6 +36,10 @@ npm run testar-navegador   # 34 testes de ponta a ponta no Chrome headless (exig
 O teste de navegador usa o Chrome instalado (caminho padrão do Windows ou variável `CHROME`) e salva as telas em
 `.verificar/telas/`.
 
+> **Rode o teste de navegador com a API desligada.** Ele usa os dados de demonstração do navegador. Com a API ligada,
+> o acervo, a circulação, os sócios e o repositório passam a vir do banco (veja `server/README.md`): os cenários de
+> demonstração deixam de existir e o teste chega a gravar empréstimos e desbastes de verdade no banco.
+
 ## Stack (a mesma do modelo)
 
 React 19 · Vite 8 · TypeScript 5.7 (strict) · Tailwind CSS 4 · lucide-react · clsx + tailwind-merge. Nenhuma dependência
@@ -129,7 +133,10 @@ resolvidos assim e podem ser ajustados:
 
 ## Limites desta entrega
 
-Este é um **front-end sem servidor**. Tudo funciona no navegador, mas:
+Com a API (`server/`) no ar, login, cadastro, acervo, circulação (US08–US11: empréstimo, renovação, datas e multa por
+atraso), sócios-leitores, repositório digital (US17–US18) e mural ficam no PostgreSQL, com os arquivos e imagens no
+Amazon S3; veja `server/README.md`. Mesas, doações, notificações e backups continuam no navegador. Sem a API, o front-end
+funciona sozinho, no modo de demonstração descrito abaixo:
 
 - **Os dados ficam no navegador** (localStorage para registros, IndexedDB para arquivos). Cada computador tem seus próprios
   dados; não há sincronização entre máquinas. O backup em JSON permite levar os dados de um navegador para outro.

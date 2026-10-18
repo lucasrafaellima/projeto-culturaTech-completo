@@ -251,6 +251,8 @@ export function aplicarRotinas(
   hoje: string,
   agora: string,
   horaAtual: number,
+  // com a circulação no banco, quem expira as reservas é o servidor
+  { expirarReservas = true }: { expirarReservas?: boolean } = {},
 ): { estado: Estado; relatorio: RelatorioRotina } {
   let estado = e
   const relatorio: RelatorioRotina = {
@@ -262,7 +264,7 @@ export function aplicarRotinas(
   }
 
   // 1. Reservas não retiradas no prazo liberam o exemplar
-  const expiradas = estado.reservas.filter((r) => r.status === "ativa" && r.expiraEm < hoje)
+  const expiradas = expirarReservas ? estado.reservas.filter((r) => r.status === "ativa" && r.expiraEm < hoje) : []
   if (expiradas.length > 0) {
     const ids = new Set(expiradas.map((r) => r.exemplarId))
     estado = {
