@@ -193,11 +193,52 @@ conferir("exemplar devolvido volta a ficar disponível", (await statusDe(ex[1]))
 const devDeNovo = await post(`/emprestimos/${e2.corpo.emprestimo.id}/devolver`)
 conferir("devolver duas vezes: 409", devDeNovo.status === 409, devDeNovo.corpo)
 
-// simula 5 dias de atraso no empréstimo 1
+// ---------- situação do sócio no balcão (US08 / US11) ----------
+const sitA = await get(`/socios/${socioA}/situacao`)
+conferir(
+  "situação: 1 empréstimo ativo de 3, regular",
+  sitA.status === 200 &&
+    sitA.corpo.situacao.emprestimosAtivos === 1 &&
+    sitA.corpo.situacao.limite === 3 &&
+    sitA.corpo.situacao.bloqueado === false &&
+    sitA.corpo.situacao.multaCorrente === 0,
+  sitA.corpo,
+)
+conferir("situação de sócio inexistente: 404", (await get("/socios/00000000-0000-0000-0000-000000000000/situacao")).status === 404)
+conferir("sócio não consulta a situação de outro: 403", (await get(`/socios/${socioA}/situacao`, joao)).status === 403)
+const sitMaria = await get(`/socios/${MARIA}/situacao`)
+conferir(
+  "situação da sócia bloqueada traz o motivo (RN08)",
+  sitMaria.corpo.situacao?.bloqueado === true && /atraso/.test(sitMaria.corpo.situacao.motivo),
+  sitMaria.corpo,
+)
+
+// US11: multa corrente soma os exemplares atrasados (R$ 1,00 por dia e por exemplar)
+const extra = await post("/emprestimos", { socioId: socioA, exemplarId: ex[4] })
 await pool.query(
   "UPDATE emprestimo SET data_emprestimo = CURRENT_DATE - 19, data_prevista = CURRENT_DATE - 5, renovacoes = 0 WHERE id = $1",
   [emp1.id],
 )
+await pool.query("UPDATE emprestimo SET data_emprestimo = CURRENT_DATE - 17, data_prevista = CURRENT_DATE - 3 WHERE id = $1", [
+  extra.corpo.emprestimo.id,
+])
+const sitAtraso = await get(`/socios/${socioA}/situacao`)
+conferir(
+  "multa corrente: 5 dias + 3 dias = R$ 8,00 em 2 exemplares",
+  sitAtraso.corpo.situacao?.emprestimosAtrasados === 2 && sitAtraso.corpo.situacao.multaCorrente === 8 && sitAtraso.corpo.situacao.bloqueado,
+  sitAtraso.corpo,
+)
+const euA = await get("/eu/circulacao", tA)
+conferir("sócio vê a própria situação em /eu/circulacao", euA.corpo.situacao?.multaCorrente === 8, euA.corpo.situacao)
+const devExtra = await post(`/emprestimos/${extra.corpo.emprestimo.id}/devolver`)
+conferir(
+  "cada exemplar gera a própria multa na devolução (3 × R$ 1,00)",
+  devExtra.corpo.multas?.[0]?.valor === 3 && devExtra.corpo.multas[0].dias === 3,
+  devExtra.corpo,
+)
+// a multa do exemplar extra não faz parte do roteiro abaixo
+await post(`/multas/${devExtra.corpo.multas[0].id}/quitar`)
+
 const renAtraso = await post(`/emprestimos/${emp1.id}/renovar`)
 conferir("empréstimo atrasado não renova", renAtraso.status === 409 && renAtraso.corpo.mensagem.includes("atraso"), renAtraso.corpo)
 const bloqueado = await post("/emprestimos", { socioId: socioA, exemplarId: ex[3] })

@@ -194,6 +194,7 @@ await ir("#/repositorio/demo-pdf-fundacao")
 await espera(1500)
 const iframe = await js("!!document.querySelector('iframe[src^=\"blob:\"]')")
 ok(iframe, "PDF descomprimido e exibido no navegador (RF17)")
+ok((await texto()).includes("somente consulta digital"), "obra rara: aviso de somente consulta digital (US18)")
 await foto("04-visualizador-pdf")
 
 // ---------------- Sócio com pendências ----------------
@@ -246,27 +247,42 @@ t = await texto()
 ok(t.includes("Circulação") && t.includes("Empréstimos em andamento"), "admin entra na Circulação")
 await foto("08-circulacao")
 
-// RN08: Maria Joana bloqueada
+// RN08: Maria Joana bloqueada (sócio localizado pela busca por nome ou CPF, T05)
+const escolherSocio = async (busca, nome) => {
+  await preencher("Sócio-leitor", busca)
+  await espera(250)
+  return js(`(() => { const o = [...document.querySelectorAll('[role=dialog] [role=option]')].find(x => x.innerText.includes(${JSON.stringify(nome)})); o?.click(); return !!o })()`)
+}
 await clicar("Novo empréstimo")
 await espera(300)
-await digitar('[role=dialog] select', "s1")
+ok(await escolherSocio("529.982", "Maria Joana"), "busca de sócio pelo CPF no empréstimo (T05)")
 await espera(200)
 t = await texto()
 ok(t.includes("Novos empréstimos estão bloqueados (RN08)"), "RN08 aviso de bloqueio no empréstimo")
+ok(
+  t.includes("Data de saída") && t.includes("Devolução prevista") && (await js(`[...document.querySelectorAll('[role=dialog] button')].find(b => b.innerText.includes('Confirmar empréstimo'))?.disabled`)),
+  "datas exibidas e confirmação travada para sócio bloqueado (US10)",
+)
 // João Pedro: empréstimo de um exemplar de cordel deve ser recusado na lista
-await digitar('[role=dialog] select', "s2")
-await digitar('[role=dialog] input', "Cante")
+await clicar("Trocar")
+await espera(200)
+ok(await escolherSocio("joao", "João Pedro"), "busca de sócio pelo nome, sem acento")
+await preencher("Exemplar", "Cante")
 await espera(300)
 t = await texto()
 ok(t.includes("consulta local (RN04)"), "RN04 exemplar de cordel aparece como não emprestável")
-await digitar('[role=dialog] input', "Vidas")
+await preencher("Exemplar", "Vidas")
 await espera(300)
-await js(`[...document.querySelectorAll('[role=option]')].find(o => !o.disabled)?.click()`)
+await js(`[...document.querySelectorAll('[role=dialog] [role=listbox][aria-label=Exemplares] [role=option]')].find(o => !o.disabled)?.click()`)
 await clicar("Confirmar empréstimo")
 await espera(400)
 ok((await toast()).includes("Empréstimo registrado"), "empréstimo registrado com prazo de 14 dias (RN02)")
 
-// Renovação
+// Renovação: só aparece quando é permitida (T19)
+ok(
+  await js(`(() => { const tr = [...document.querySelectorAll('tbody tr')].find(r => r.innerText.includes('Maria Joana')); return !!tr && !tr.innerText.includes('Renovar') && tr.innerText.includes('Não renovável') })()`),
+  "renovação oculta para empréstimo atrasado (T19)",
+)
 await clicar("Renovar")
 await espera(300)
 ok((await toast()).includes("renovado"), "renovação acrescenta 14 dias (RN02)")
@@ -357,12 +373,29 @@ await ir("#/circulacao")
 t = await texto()
 ok(t.includes("Empréstimos em andamento"), "sessão e dados persistem após recarregar")
 
-// Celular
+// Celular (US30)
 await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
+await ir("#/circulacao")
+await espera(400)
+const largCirc = await js("document.documentElement.scrollWidth")
+ok(
+  largCirc <= 390 && (await js("[...document.querySelectorAll('main li')].some(li => li.innerText.includes('Devolver'))")),
+  `circulação em cartões, sem rolagem horizontal no celular (US30) [${largCirc}px]`,
+)
+await foto("15b-circulacao-celular")
 await ir("#/mural")
 await espera(400)
 const larg = await js("document.documentElement.scrollWidth")
 ok(larg <= 390, `layout sem rolagem horizontal no celular (RNF11) [${larg}px]`)
+await digitar('input[aria-label="Buscar no mural"]', "cordel")
+await espera(300)
+ok(
+  (await js("[...document.querySelectorAll('[aria-roledescription=slide]')].every(s => /cordel/i.test(s.innerText))")) &&
+    (await js("document.querySelectorAll('[aria-roledescription=slide]').length")) > 0,
+  "busca no mural filtra as publicações (US22)",
+)
+await digitar('input[aria-label="Buscar no mural"]', "")
+await espera(300)
 await foto("16-mural-celular")
 await js("document.querySelector('[aria-label=\"Abrir menu\"]').click()")
 await espera(400)

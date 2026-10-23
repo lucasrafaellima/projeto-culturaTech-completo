@@ -28,7 +28,6 @@ import {
   Input,
   Modal,
   Rodape,
-  Select,
   Textarea,
   Vazio,
   useAcao,
@@ -45,9 +44,19 @@ import {
   MULTA_POR_DIA,
   PRAZO_EMPRESTIMO_DIAS,
   categoriaEmprestavel,
+  labelMulta,
 } from "@/lib/constants"
 import { emprestimoAtivoDoExemplar, multaCorrente, reservaAtivaDoExemplar } from "@/lib/regras"
-import { addDays, diasAtraso, formatCurrency, formatDate, formatDateTime, normalizar } from "@/lib/utils"
+import {
+  addDays,
+  diasAtraso,
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  mascararCpf,
+  normalizar,
+  somenteDigitos,
+} from "@/lib/utils"
 import type { Emprestimo, Multa } from "@/lib/types"
 
 type Aba = "emprestimos" | "multas" | "reservas" | "danos"
@@ -162,101 +171,112 @@ export function CirculacaoPage() {
               </label>
             }
           />
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="p-4 font-medium">Obra</th>
-                  <th className="p-4 font-medium">Sócio-leitor</th>
-                  <th className="p-4 font-medium">Saída</th>
-                  <th className="p-4 font-medium">Prevista</th>
-                  <th className="p-4 font-medium">Renov.</th>
-                  <th className="p-4 font-medium">Situação</th>
-                  <th className="p-4 text-right font-medium">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {listaEmprestimos.map((emp) => {
-                  const corrente = multaCorrente(emp, hoje)
-                  const atrasado = diasAtraso(emp.dataPrevista, hoje) > 0
-                  return (
-                    <tr key={emp.id}>
-                      <td className="p-4">
-                        <button className="text-left font-medium hover:underline" onClick={() => setDetalhe(emp)}>
-                          {tituloDoExemplar(emp.exemplarId)}
-                        </button>
-                        <p className="font-mono text-xs text-muted-foreground">
-                          {exemplares.find((x) => x.id === emp.exemplarId)?.tombamento}
-                        </p>
-                      </td>
-                      <td className="p-4">{getSocio(emp.socioId)?.nome}</td>
-                      <td className="p-4">{formatDate(emp.dataEmprestimo)}</td>
-                      <td className="p-4">
-                        {formatDate(emp.dataDevolucao ? emp.dataDevolucao : emp.dataPrevista)}
-                        {emp.dataDevolucao && <p className="text-xs text-muted-foreground">prevista {formatDate(emp.dataPrevista)}</p>}
-                      </td>
-                      <td className="p-4">
+          {listaEmprestimos.length === 0 && <Vazio>Nenhum empréstimo.</Vazio>}
+
+          {/* Celular e tablet (US30): um cartão por empréstimo */}
+          <ul className="divide-y divide-border lg:hidden">
+            {listaEmprestimos.map((emp) => {
+              const corrente = multaCorrente(emp, hoje)
+              return (
+                <li key={emp.id} className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <button className="text-left font-medium hover:underline" onClick={() => setDetalhe(emp)}>
+                        {tituloDoExemplar(emp.exemplarId)}
+                      </button>
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-mono">{exemplares.find((x) => x.id === emp.exemplarId)?.tombamento}</span> ·{" "}
+                        {getSocio(emp.socioId)?.nome}
+                      </p>
+                    </div>
+                    <SituacaoEmprestimo emp={emp} />
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <dt className="text-muted-foreground">Saída</dt>
+                      <dd className="font-medium">{formatDate(emp.dataEmprestimo)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">{emp.dataDevolucao ? "Devolvido" : "Prevista"}</dt>
+                      <dd className="font-medium">{formatDate(emp.dataDevolucao ?? emp.dataPrevista)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Renovações</dt>
+                      <dd className="font-medium">
                         {emp.renovacoes}/{MAX_RENOVACOES}
-                      </td>
-                      <td className="p-4">
-                        <SituacaoEmprestimo emp={emp} />
-                        {corrente > 0 && <p className="mt-1 text-xs text-danger">multa corrente {formatCurrency(corrente)}</p>}
-                      </td>
-                      <td className="p-4">
-                        {emp.status === "ativo" && (
-                          <div className="flex justify-end gap-1">
-                            <Button variante="outline" tamanho="sm" onClick={() => setDevolvendo(emp)}>
-                              <BookDown className="h-4 w-4" /> Devolver
-                            </Button>
-                            <Button
-                              variante="ghost"
-                              tamanho="sm"
-                              disabled={emp.renovacoes >= MAX_RENOVACOES || atrasado}
-                              title={
-                                atrasado
-                                  ? "Empréstimo em atraso não pode ser renovado"
-                                  : emp.renovacoes >= MAX_RENOVACOES
-                                    ? "Limite de renovações atingido (RN17)"
-                                    : "Renovar por mais 14 dias"
-                              }
-                              onClick={() => executar(() => store.renovarEmprestimo(emp.id))}
-                            >
-                              <RefreshCw className="h-4 w-4" /> Renovar
-                            </Button>
-                            <Button
-                              variante="ghost"
-                              tamanho="icon"
-                              aria-label="Alterar prazo"
-                              title="Alterar prazo"
-                              onClick={() => setAlterando({ emp, data: emp.dataPrevista, motivo: "" })}
-                            >
-                              <CalendarCog className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variante="ghost"
-                              tamanho="icon"
-                              aria-label="Cancelar empréstimo"
-                              title="Cancelar empréstimo"
-                              onClick={() => setCancelando({ emp, motivo: "" })}
-                            >
-                              <XCircle className="h-4 w-4 text-danger" />
-                            </Button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {listaEmprestimos.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-muted-foreground">
-                      Nenhum empréstimo.
-                    </td>
+                      </dd>
+                    </div>
+                  </dl>
+                  {corrente > 0 && <p className="text-xs text-danger">Multa corrente: {formatCurrency(corrente)}</p>}
+                  <AcoesEmprestimo
+                    emp={emp}
+                    onDevolver={() => setDevolvendo(emp)}
+                    onRenovar={() => executar(() => store.renovarEmprestimo(emp.id))}
+                    onAlterar={() => setAlterando({ emp, data: emp.dataPrevista, motivo: "" })}
+                    onCancelar={() => setCancelando({ emp, motivo: "" })}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+
+          {/* Computador: tabela */}
+          {listaEmprestimos.length > 0 && (
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="p-4 font-medium">Obra</th>
+                    <th className="p-4 font-medium">Sócio-leitor</th>
+                    <th className="p-4 font-medium">Saída</th>
+                    <th className="p-4 font-medium">Prevista</th>
+                    <th className="p-4 font-medium">Renov.</th>
+                    <th className="p-4 font-medium">Situação</th>
+                    <th className="p-4 text-right font-medium">Ações</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {listaEmprestimos.map((emp) => {
+                    const corrente = multaCorrente(emp, hoje)
+                    return (
+                      <tr key={emp.id}>
+                        <td className="p-4">
+                          <button className="text-left font-medium hover:underline" onClick={() => setDetalhe(emp)}>
+                            {tituloDoExemplar(emp.exemplarId)}
+                          </button>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {exemplares.find((x) => x.id === emp.exemplarId)?.tombamento}
+                          </p>
+                        </td>
+                        <td className="p-4">{getSocio(emp.socioId)?.nome}</td>
+                        <td className="p-4">{formatDate(emp.dataEmprestimo)}</td>
+                        <td className="p-4">
+                          {formatDate(emp.dataDevolucao ? emp.dataDevolucao : emp.dataPrevista)}
+                          {emp.dataDevolucao && <p className="text-xs text-muted-foreground">prevista {formatDate(emp.dataPrevista)}</p>}
+                        </td>
+                        <td className="p-4">
+                          {emp.renovacoes}/{MAX_RENOVACOES}
+                        </td>
+                        <td className="p-4">
+                          <SituacaoEmprestimo emp={emp} />
+                          {corrente > 0 && <p className="mt-1 text-xs text-danger">multa corrente {formatCurrency(corrente)}</p>}
+                        </td>
+                        <td className="p-4">
+                          <AcoesEmprestimo
+                            emp={emp}
+                            onDevolver={() => setDevolvendo(emp)}
+                            onRenovar={() => executar(() => store.renovarEmprestimo(emp.id))}
+                            onAlterar={() => setAlterando({ emp, data: emp.dataPrevista, motivo: "" })}
+                            onCancelar={() => setCancelando({ emp, motivo: "" })}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       )}
 
@@ -534,7 +554,28 @@ export function CirculacaoPage() {
                 <p className="text-xs text-muted-foreground">Situação</p>
                 <SituacaoEmprestimo emp={detalhe} />
               </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Renovações</p>
+                <p className="font-medium">
+                  {detalhe.renovacoes}/{MAX_RENOVACOES}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Multa</p>
+                <p className="font-medium">
+                  {(() => {
+                    const doEmp = multas.filter((m) => m.emprestimoId === detalhe.id)
+                    const corrente = multaCorrente(detalhe, hoje)
+                    if (corrente > 0) return `${formatCurrency(corrente)} correndo`
+                    if (doEmp.length === 0) return "-"
+                    return doEmp.map((m) => `${formatCurrency(m.valor)} (${labelMulta[m.status].toLowerCase()})`).join(", ")
+                  })()}
+                </p>
+              </div>
             </div>
+            {detalhe.status === "ativo" && bloqueioRenovacao(detalhe, hoje) && (
+              <Aviso tipo="info">Renovação indisponível: {bloqueioRenovacao(detalhe, hoje)}</Aviso>
+            )}
             {detalhe.historico.length > 0 && (
               <ol className="space-y-1 border-l-2 border-border pl-4">
                 {detalhe.historico.map((h, i) => (
@@ -553,17 +594,84 @@ export function CirculacaoPage() {
   )
 }
 
+/** Motivo pelo qual um empréstimo não pode ser renovado, ou null se pode (RN17 / atraso). */
+function bloqueioRenovacao(emp: Emprestimo, hoje: string): string | null {
+  if (emp.status !== "ativo") return "Somente empréstimos em andamento podem ser renovados."
+  if (emp.renovacoes >= MAX_RENOVACOES) return `Limite de ${MAX_RENOVACOES} renovações atingido (RN17).`
+  if (diasAtraso(emp.dataPrevista, hoje) > 0) return "Em atraso: registre a devolução para calcular a multa."
+  return null
+}
+
+/** Ações de um empréstimo em andamento; a renovação só aparece quando é permitida (T19). */
+function AcoesEmprestimo({
+  emp,
+  onDevolver,
+  onRenovar,
+  onAlterar,
+  onCancelar,
+}: {
+  emp: Emprestimo
+  onDevolver: () => void
+  onRenovar: () => void
+  onAlterar: () => void
+  onCancelar: () => void
+}) {
+  const { hoje } = useStore()
+  if (emp.status !== "ativo") return null
+  const motivo = bloqueioRenovacao(emp, hoje)
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      <Button variante="outline" tamanho="sm" onClick={onDevolver}>
+        <BookDown className="h-4 w-4" /> Devolver
+      </Button>
+      {motivo ? (
+        <span className="px-2 text-xs text-muted-foreground" title={motivo}>
+          {emp.renovacoes >= MAX_RENOVACOES ? "Sem renovações" : "Não renovável"}
+        </span>
+      ) : (
+        <Button variante="ghost" tamanho="sm" title={`Renovar por mais ${PRAZO_EMPRESTIMO_DIAS} dias`} onClick={onRenovar}>
+          <RefreshCw className="h-4 w-4" /> Renovar
+        </Button>
+      )}
+      <Button variante="ghost" tamanho="icon" aria-label="Alterar prazo" title="Alterar prazo" onClick={onAlterar}>
+        <CalendarCog className="h-4 w-4" />
+      </Button>
+      <Button variante="ghost" tamanho="icon" aria-label="Cancelar empréstimo" title="Cancelar empréstimo" onClick={onCancelar}>
+        <XCircle className="h-4 w-4 text-danger" />
+      </Button>
+    </div>
+  )
+}
+
 function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () => void }) {
   const store = useStore()
-  const { socios, exemplares, livros, hoje, getLivro, motivoBloqueio, emprestimos } = store
+  const { socios, exemplares, livros, hoje, getLivro, debitos, motivoBloqueio, emprestimos, reservas } = store
   const executar = useAcao()
   const [socioId, setSocioId] = useState("")
+  const [buscaSocio, setBuscaSocio] = useState("")
   const [busca, setBusca] = useState("")
   const [exemplarId, setExemplarId] = useState("")
 
   const socio = socios.find((s) => s.id === socioId)
   const bloqueio = socioId ? motivoBloqueio(socioId) : null
+  const d = socioId ? debitos(socioId) : null
   const ativosSocio = emprestimos.filter((e) => e.socioId === socioId && e.status === "ativo").length
+  // RN01: reservas de outras obras também ocupam vaga
+  const reservasSocio = reservas.filter((r) => r.socioId === socioId && r.status === "ativa")
+  const ocupados = ativosSocio + reservasSocio.filter((r) => r.exemplarId !== exemplarId).length
+  const noLimite = !!socio && ocupados >= MAX_EXEMPLARES_SIMULTANEOS
+  const exemplar = exemplares.find((x) => x.id === exemplarId)
+
+  // sócios localizados por nome ou CPF (só os ativos podem pegar emprestado, RN06)
+  const sociosEncontrados = useMemo(() => {
+    const t = normalizar(buscaSocio)
+    const digitos = somenteDigitos(buscaSocio)
+    if (t.length < 2 && digitos.length < 3) return []
+    return socios
+      .filter((s) => !s.anonimizado)
+      .filter((s) => normalizar(s.nome).includes(t) || (digitos.length >= 3 && s.cpf.includes(digitos)))
+      .slice(0, 8)
+  }, [buscaSocio, socios])
 
   // exemplares localizados pela busca (título ou tombamento)
   const candidatos = useMemo(() => {
@@ -592,43 +700,112 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
 
   function fechar() {
     setSocioId("")
+    setBuscaSocio("")
     setBusca("")
     setExemplarId("")
     onFechar()
   }
 
+  // o que impede confirmar, na ordem em que o balcão confere (US08)
+  const impedimento = !socio
+    ? null
+    : !socio.ativo
+      ? "Sócio-leitor inativo: somente sócios ativos podem fazer empréstimos (RN06)."
+      : bloqueio
+        ? `O sócio-leitor possui ${bloqueio}. Novos empréstimos estão bloqueados (RN08).`
+        : noLimite
+          ? `Limite de ${MAX_EXEMPLARES_SIMULTANEOS} exemplares simultâneos atingido, somando empréstimos e reservas (RN01).`
+          : null
+  const podeConfirmar = !!socio && !!exemplar && !impedimento
+
   return (
     <Modal aberto={aberto} onFechar={fechar} titulo="Registrar empréstimo" largura="max-w-xl">
       <div className="space-y-4">
-        <Campo rotulo="Sócio-leitor">
-          {(id) => (
-            <Select id={id} value={socioId} onChange={(e) => setSocioId(e.target.value)}>
-              <option value="">Selecione...</option>
-              {socios
-                .filter((s) => s.ativo)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nome}
-                  </option>
-                ))}
-            </Select>
-          )}
-        </Campo>
-        {socio && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge className="bg-muted text-foreground">
-              {ativosSocio}/{MAX_EXEMPLARES_SIMULTANEOS} empréstimos ativos
-            </Badge>
-            {bloqueio ? (
-              <Badge className="bg-danger/15 text-danger">
-                <AlertTriangle className="h-3 w-3" /> Bloqueado
-              </Badge>
-            ) : (
-              <Badge className="bg-success/15 text-success">Regular</Badge>
-            )}
+        {socio ? (
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
+            <div className="min-w-0 text-sm">
+              <p className="font-medium">{socio.nome}</p>
+              <p className="text-xs text-muted-foreground">CPF {mascararCpf(socio.cpf)}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge className="bg-muted text-foreground">
+                  {ocupados}/{MAX_EXEMPLARES_SIMULTANEOS} {reservasSocio.length ? "empréstimos e reservas" : "empréstimos ativos"}
+                </Badge>
+                {impedimento ? (
+                  <Badge className="bg-danger/15 text-danger">
+                    <AlertTriangle className="h-3 w-3" /> Bloqueado
+                  </Badge>
+                ) : (
+                  <Badge className="bg-success/15 text-success">Regular</Badge>
+                )}
+                {d && d.totalCorrente > 0 && (
+                  <Badge className="bg-danger/15 text-danger">multa correndo {formatCurrency(d.totalCorrente)}</Badge>
+                )}
+              </div>
+            </div>
+            <Button
+              variante="ghost"
+              tamanho="sm"
+              onClick={() => {
+                setSocioId("")
+                setExemplarId("")
+              }}
+            >
+              Trocar
+            </Button>
           </div>
+        ) : (
+          <>
+            <Campo rotulo="Sócio-leitor" dica="Busque pelo nome ou pelo CPF.">
+              {(id) => (
+                <Input
+                  id={id}
+                  value={buscaSocio}
+                  onChange={(e) => setBuscaSocio(e.target.value)}
+                  placeholder="Ex.: Maria ou 529.982"
+                  autoComplete="off"
+                />
+              )}
+            </Campo>
+            {sociosEncontrados.length > 0 && (
+              <ul className="max-h-52 divide-y divide-border overflow-y-auto rounded-lg border border-border" role="listbox" aria-label="Sócios-leitores">
+                {sociosEncontrados.map((s) => {
+                  const motivo = !s.ativo ? "inativo" : motivoBloqueio(s.id) ? "com pendências" : null
+                  return (
+                    <li key={s.id}>
+                      <button
+                        role="option"
+                        aria-selected={false}
+                        onClick={() => setSocioId(s.id)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                      >
+                        <span>
+                          {s.nome} <span className="font-mono text-xs text-muted-foreground">{mascararCpf(s.cpf)}</span>
+                        </span>
+                        <span className={motivo ? "text-xs text-danger" : "text-xs text-muted-foreground"}>{motivo ?? "regular"}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {buscaSocio.trim().length >= 2 && sociosEncontrados.length === 0 && (
+              <p className="text-sm text-muted-foreground">Nenhum sócio-leitor encontrado.</p>
+            )}
+          </>
         )}
-        {bloqueio && <Aviso tipo="erro">O sócio-leitor possui {bloqueio}. Novos empréstimos estão bloqueados (RN08).</Aviso>}
+        {impedimento && <Aviso tipo="erro">{impedimento}</Aviso>}
+        {socio && d && d.atrasados.length > 0 && (
+          <ul className="space-y-1 rounded-lg border border-danger/30 bg-danger/5 p-3 text-xs">
+            {d.atrasados.map((emp) => (
+              <li key={emp.id} className="flex justify-between gap-2">
+                <span>{store.tituloDoExemplar(emp.exemplarId)}</span>
+                <span className="text-danger">
+                  {diasAtraso(emp.dataPrevista, hoje)} dia(s) · {formatCurrency(multaCorrente(emp, hoje))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <Campo rotulo="Exemplar" dica="Busque pelo título ou pelo código de tombamento.">
           {(id) => (
@@ -640,6 +817,7 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
                 setExemplarId("")
               }}
               placeholder="Ex.: Vidas Secas ou BMA-1001"
+              autoComplete="off"
             />
           )}
         </Campo>
@@ -668,16 +846,28 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
           </ul>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          Devolução prevista: <strong>{formatDate(addDays(hoje, PRAZO_EMPRESTIMO_DIAS))}</strong> ({PRAZO_EMPRESTIMO_DIAS} dias
-          corridos, RN02).
-        </p>
+        {/* US10: datas do registro, antes de confirmar */}
+        <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/40 p-3 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground">Data de saída</p>
+            <p className="font-medium">{formatDate(hoje)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Devolução prevista</p>
+            <p className="font-medium">{formatDate(addDays(hoje, PRAZO_EMPRESTIMO_DIAS))}</p>
+          </div>
+          <p className="col-span-2 text-xs text-muted-foreground">
+            {PRAZO_EMPRESTIMO_DIAS} dias corridos (RN02), renovável até {MAX_RENOVACOES} vezes. Atraso: {formatCurrency(MULTA_POR_DIA)}{" "}
+            por dia (RN03).
+            {exemplar && ` Exemplar ${exemplar.tombamento}: ${getLivro(exemplar.livroId)?.titulo ?? ""}.`}
+          </p>
+        </div>
         <Rodape>
           <Button variante="outline" onClick={fechar}>
             Cancelar
           </Button>
           <Button
-            disabled={!socioId || !exemplarId}
+            disabled={!podeConfirmar}
             onClick={() => executar(() => store.realizarEmprestimo(socioId, exemplarId), fechar)}
           >
             <BookUp className="h-4 w-4" /> Confirmar empréstimo
@@ -707,6 +897,8 @@ function Devolucao({
 
   if (!emp) return null
   const dias = diasAtraso(emp.dataPrevista, hoje)
+  const multaAtraso = dias * MULTA_POR_DIA
+  const valorDano = comDano ? Number(valor.replace(",", ".")) || 0 : 0
 
   // cancelamento: descarta as imagens já comprimidas e armazenadas
   function fechar() {
@@ -720,22 +912,33 @@ function Devolucao({
         <p className="text-sm">
           <strong>{tituloDoExemplar(emp.exemplarId)}</strong> · {getSocio(emp.socioId)?.nome}
         </p>
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        {/* US10: as três datas do empréstimo */}
+        <div className="grid grid-cols-3 gap-3 text-sm">
           <div>
-            <p className="text-xs text-muted-foreground">Devolução prevista</p>
-            <p className="font-medium">{formatDate(emp.dataPrevista)}</p>
+            <p className="text-xs text-muted-foreground">Saída</p>
+            <p className="font-medium">{formatDate(emp.dataEmprestimo)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Data de devolução</p>
+            <p className="text-xs text-muted-foreground">Prevista</p>
+            <p className="font-medium">{formatDate(emp.dataPrevista)}</p>
+            {emp.renovacoes > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {emp.renovacoes} renovação(ões)
+              </p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Devolução efetiva</p>
             <p className="font-medium">{formatDate(hoje)}</p>
           </div>
         </div>
         {dias > 0 ? (
           <Aviso tipo="erro">
-            {dias} dia(s) de atraso: será gerada multa de <strong>{formatCurrency(dias * MULTA_POR_DIA)}</strong> (RN03).
+            {dias} dia(s) de atraso × {formatCurrency(MULTA_POR_DIA)}: será gerada multa de{" "}
+            <strong>{formatCurrency(multaAtraso)}</strong> para este exemplar (RN03).
           </Aviso>
         ) : (
-          <Aviso tipo="sucesso">Devolução dentro do prazo.</Aviso>
+          <Aviso tipo="sucesso">Devolução dentro do prazo: sem multa por atraso.</Aviso>
         )}
 
         <label className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm">
@@ -769,6 +972,12 @@ function Devolucao({
               {(id) => <Input id={id} type="number" min="0" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} className="sm:w-40" />}
             </Campo>
           </div>
+        )}
+
+        {multaAtraso + valorDano > 0 && (
+          <p className="text-right text-sm">
+            Total a cobrar nesta devolução: <strong>{formatCurrency(multaAtraso + valorDano)}</strong>
+          </p>
         )}
 
         <Rodape>

@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
@@ -48,6 +48,8 @@ function armazenamentoDisco(pasta: string): Armazenamento {
       await writeFile(caminho(chave), bytes)
     },
     async ler(chave) {
+      // confere antes de abrir: arquivo ausente falha aqui, como no S3, e não no meio da resposta
+      await stat(caminho(chave))
       return createReadStream(caminho(chave))
     },
     async apagar(chave) {

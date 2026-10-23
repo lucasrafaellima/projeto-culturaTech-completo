@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { pipeline } from "node:stream/promises"
-import express, { Router } from "express"
+import express, { Router, type NextFunction, type Request, type Response } from "express"
 import type pg from "pg"
 import { pool } from "./db.ts"
 import { exigirAdmin, usuarioOpcional, type UsuarioLogado } from "./auth.ts"
@@ -11,8 +11,13 @@ import { ErroRegra, emTransacao, idDe, tratarErroDeRegra } from "./comum.ts"
 // e imagens de dano. O front-end já envia o conteúdo comprimido (imagens em
 // WEBP, PDFs em gzip); a API confere o tipo e guarda os bytes como recebeu.
 
+// Limites do conteúdo armazenado (já comprimido): PDFs digitalizados até 15 MB;
+// imagens até 5 MB (o front reduz para WEBP de até 1600 px, bem abaixo disso)
 export const LIMITE_ARQUIVO = 15 * 1024 * 1024
+export const LIMITE_IMAGEM = 5 * 1024 * 1024
 const MIMES = ["image/webp", "image/jpeg", "image/png", "application/pdf"]
+
+const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
 // Confere a assinatura do conteúdo, para um arquivo qualquer não passar como PDF ou imagem
 function assinaturaConfere(b: Buffer, mime: string, compressao: string): boolean {
@@ -71,6 +76,9 @@ rotasArquivos.post(
 
     const mime = String(req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase()
     if (!MIMES.includes(mime)) throw new ErroRegra(400, "Formato não suportado. Envie PDF, JPG, PNG ou WEBP (RNF12).")
+    if (mime.startsWith("image/") && bytes.length > LIMITE_IMAGEM) {
+      throw new ErroRegra(413, `Imagem grande demais: o limite é ${mb(LIMITE_IMAGEM)}.`)
+    }
 
     const compressao = String(req.headers["x-compressao"] ?? "nenhuma")
     const combina =
@@ -102,7 +110,13 @@ rotasArquivos.post(
 
     const id = randomUUID()
     const chave = chaveDoArquivo(destino, id, mime)
-    await armazenamento.gravar(chave, bytes, mime, compressao === "gzip")
+    try {
+      await armazenamento.gravar(chave, bytes, mime, compressao === "gzip")
+    } catch (erro) {
+      // S3 fora do ar, sem permissão ou disco cheio: o usuário tenta de novo
+      console.error(`Falha ao gravar ${chave}:`, (erro as Error).message)
+      throw new ErroRegra(503, "Não foi possível guardar o arquivo no armazenamento. Tente novamente em instantes.")
+    }
     try {
       await pool.query(
         `INSERT INTO arquivo (id, nome_arquivo, mime, chave_storage, tamanho_original, tamanho_armazenado, compressao)
@@ -149,7 +163,14 @@ rotasArquivos.get("/arquivos/:id", usuarioOpcional, async (req, res) => {
     if (arq.dono_foto !== usuario.id) throw new ErroRegra(404, "Arquivo não encontrado.")
   }
 
-  const conteudo = await armazenamento.ler(arq.chave_storage)
+  let conteudo
+  try {
+    conteudo = await armazenamento.ler(arq.chave_storage)
+  } catch (erro) {
+    // o registro existe, mas o objeto sumiu do S3/disco (ou o S3 está fora do ar)
+    console.error(`Falha ao ler ${arq.chave_storage}:`, (erro as Error).message)
+    throw new ErroRegra(503, "Arquivo indisponível no momento. Tente novamente mais tarde.")
+  }
   res.set({
     "Content-Type": arq.mime,
     "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(arq.nome_arquivo)}`,
@@ -183,4 +204,11 @@ rotasArquivos.delete("/arquivos/:id", exigirAdmin, async (req, res) => {
   res.json({ ok: true, mensagem: "Arquivo apagado." })
 })
 
-rotasArquivos.use(tratarErroDeRegra)
+rotasArquivos.use((erro: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
+  // corpo acima de LIMITE_ARQUIVO, recusado por express.raw antes de chegar à rota
+  if (erro.type === "entity.too.large") {
+    res.status(413).json({ ok: false, mensagem: `Arquivo grande demais: o limite é ${mb(LIMITE_ARQUIVO)}.` })
+    return
+  }
+  tratarErroDeRegra(erro, req, res, next)
+})

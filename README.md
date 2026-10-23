@@ -22,6 +22,7 @@ npm run preview    # serve o build em http://localhost:4173
 | Sócio-leitor | `153.509.460-56` (João Pedro) | `123456` | Regular, com reserva e empréstimo vencendo em 2 dias |
 | Sócio-leitor | `714.602.380-01` (Ana Beatriz) | `123456` | Multa com justificativa aguardando julgamento |
 | Sócio-leitor | `385.613.920-61` (Pedro Henrique) | `123456` | Cadastro sem e-mail: falha de notificação |
+| Sócio-leitor | `020.112.940-02` (Lúcia Ferreira) | `123456` | Só no banco (`02_dados_exemplo.sql`): dois exemplares atrasados, multa corrente somada |
 
 Visitantes não precisam de login para o mural, a consulta pública e o repositório digital.
 Os dados de demonstração têm datas relativas ao dia do primeiro acesso. Em **Backups** é possível restaurá-los.

@@ -30,7 +30,15 @@ import {
 } from "@/components/ui"
 import { ImagemArmazenada, VisualizadorPdf } from "@/components/arquivos"
 import { armazenarImagem, armazenarPdf, removerArquivos } from "@/lib/arquivos"
-import { ACCEPT_IMAGEM, labelCategoria } from "@/lib/constants"
+import {
+  ACCEPT_IMAGEM,
+  LIMITE_IMAGEM_ORIGINAL_MB,
+  LIMITE_PDF_MB,
+  categoriaEmprestavel,
+  imagemValida,
+  labelCategoria,
+  pdfValido,
+} from "@/lib/constants"
 import { navegar } from "@/lib/navigation"
 import { formatBytes, formatDate, normalizar } from "@/lib/utils"
 import type { ArquivoDigital, FormatoArquivo, PastaHistorica, VinculoArquivo } from "@/lib/types"
@@ -227,14 +235,27 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
             )}
             {atual.vinculo.tipo === "livro" && (() => {
               const livro = getLivro((atual.vinculo as { livroId: string }).livroId)
-              return livro ? (
-                <Aviso tipo="info">
-                  Vinculado à obra <strong>{livro.titulo}</strong> ({labelCategoria[livro.categoria]}).{" "}
+              if (!livro) return null
+              // US18 / RN04: obra rara, exemplar único ou cordel não sai da biblioteca — a leitura é só digital
+              const restrita = !categoriaEmprestavel(livro.categoria)
+              return (
+                <Aviso tipo={restrita ? "alerta" : "info"}>
+                  {restrita ? (
+                    <>
+                      <strong>{labelCategoria[livro.categoria]}: somente consulta digital.</strong> O original de{" "}
+                      <strong>{livro.titulo}</strong> não pode ser emprestado (RN04); esta digitalização substitui o
+                      manuseio.{" "}
+                    </>
+                  ) : (
+                    <>
+                      Vinculado à obra <strong>{livro.titulo}</strong> ({labelCategoria[livro.categoria]}).{" "}
+                    </>
+                  )}
                   <button className="font-medium text-primary underline" onClick={() => navegar("consulta", livro.id)}>
                     Ver no catálogo
                   </button>
                 </Aviso>
-              ) : null
+              )
             })()}
             {atual.descricao && <p className="text-sm text-muted-foreground text-pretty">{atual.descricao}</p>}
             <p className="text-xs text-muted-foreground">Adicionado em {formatDate(atual.dataUpload)}</p>
@@ -331,21 +352,44 @@ function UploadModal({
   const [vinculo, setVinculo] = useState("")
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [enviando, setEnviando] = useState(false)
+  // erro exibido no próprio formulário (formato, tamanho ou falha do armazenamento)
+  const [erro, setErro] = useState<string | null>(null)
 
   function limpar() {
     setTitulo("")
     setDescricao("")
     setVinculo("")
     setArquivo(null)
+    setErro(null)
     if (input.current) input.current.value = ""
   }
 
+  // confere o formato e o tamanho assim que o arquivo é escolhido (T20)
+  function escolher(f: File | null) {
+    setErro(null)
+    setArquivo(f)
+    if (!f) return
+    const valido = formato === "pdf" ? pdfValido(f) : imagemValida(f)
+    if (!valido) {
+      setErro(
+        formato === "pdf"
+          ? "Formato não permitido: escolha um arquivo PDF (.pdf)."
+          : "Formato não permitido: escolha uma imagem WEBP, JPG ou PNG (RNF12).",
+      )
+    } else if (formato === "imagem" && f.size > LIMITE_IMAGEM_ORIGINAL_MB * 1024 * 1024) {
+      // o PDF é conferido depois da compressão, em armazenarPdf
+      setErro(`Imagem grande demais (${formatBytes(f.size)}): o limite é ${LIMITE_IMAGEM_ORIGINAL_MB} MB.`)
+    }
+  }
+
   async function enviar() {
-    if (!arquivo) return notificar("Selecione o arquivo.", false)
-    if (!vinculo) return notificar("Vincule o arquivo a uma obra ou pasta já cadastrada (RF08).", false)
+    if (!arquivo) return setErro("Selecione o arquivo.")
+    if (erro) return
+    if (!vinculo) return setErro("Vincule o arquivo a uma obra ou pasta já cadastrada (RF08).")
     const [tipo, id] = vinculo.split(":")
     const v: VinculoArquivo = tipo === "livro" ? { tipo: "livro", livroId: id } : { tipo: "pasta", pastaId: id }
     setEnviando(true)
+    setErro(null)
     try {
       // no bucket: digitalização de obra fica em "acervo/"; de pasta histórica, em "documentos/"
       const servidor = token ? { token, destino: tipo === "livro" ? ("acervo" as const) : ("documentos" as const) } : undefined
@@ -367,6 +411,7 @@ function UploadModal({
       if (salvou) limpar()
       else removerArquivos([armazenado.id], token)
     } catch (err) {
+      setErro((err as Error).message)
       notificar((err as Error).message, false)
     } finally {
       setEnviando(false)
@@ -384,6 +429,7 @@ function UploadModal({
               onChange={(e) => {
                 setFormato(e.target.value as FormatoArquivo)
                 setArquivo(null)
+                setErro(null)
                 if (input.current) input.current.value = ""
               }}
             >
@@ -392,18 +438,31 @@ function UploadModal({
             </Select>
           )}
         </Campo>
-        <Campo rotulo="Arquivo" dica={formato === "pdf" ? "Somente .pdf" : "Somente WEBP, JPG e PNG (RNF12)."}>
+        <Campo
+          rotulo="Arquivo"
+          dica={
+            formato === "pdf"
+              ? `Somente .pdf, até ${LIMITE_PDF_MB} MB depois da compressão.`
+              : `Somente WEBP, JPG e PNG (RNF12), até ${LIMITE_IMAGEM_ORIGINAL_MB} MB.`
+          }
+        >
           {(id) => (
             <Input
               id={id}
               ref={input}
               type="file"
               accept={formato === "pdf" ? ".pdf,application/pdf" : ACCEPT_IMAGEM}
+              aria-invalid={!!erro}
               className="py-1.5 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1 file:text-sm"
-              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+              onChange={(e) => escolher(e.target.files?.[0] ?? null)}
             />
           )}
         </Campo>
+        {arquivo && !erro && (
+          <p className="text-xs text-muted-foreground">
+            {arquivo.name} · {formatBytes(arquivo.size)}
+          </p>
+        )}
         <Campo rotulo="Vincular a" dica="O arquivo precisa estar ligado a uma obra ou pasta já cadastrada.">
           {(id) => (
             <Select id={id} value={vinculo} onChange={(e) => setVinculo(e.target.value)}>
@@ -431,12 +490,18 @@ function UploadModal({
         <Campo rotulo="Descrição (opcional)">
           {(id) => <Textarea id={id} rows={3} value={descricao} onChange={(e) => setDescricao(e.target.value)} />}
         </Campo>
-        <Aviso tipo="info">O arquivo é comprimido antes de ser armazenado (RNF13).</Aviso>
+        {erro ? (
+          <div role="alert">
+            <Aviso tipo="erro">{erro}</Aviso>
+          </div>
+        ) : (
+          <Aviso tipo="info">O arquivo é comprimido antes de ser armazenado (RNF13).</Aviso>
+        )}
         <Rodape>
           <Button variante="outline" onClick={onFechar}>
             Cancelar
           </Button>
-          <Button onClick={enviar} disabled={enviando}>
+          <Button onClick={enviar} disabled={enviando || !!erro}>
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {enviando ? (token ? "Comprimindo e enviando..." : "Comprimindo...") : "Anexar"}
           </Button>

@@ -6,7 +6,11 @@
 --   João Pedro     (153.509.460-56) regular, reserva + empréstimo vencendo em 2 dias
 --   Ana Beatriz    (714.602.380-01) multa com justificativa em análise
 --   Pedro Henrique (385.613.920-61) sem e-mail: falha de notificação
+--   Lúcia Ferreira (020.112.940-02) dois exemplares atrasados: multa
+--                  corrente somada por exemplar (US11)
 -- Senha dos sócios: 123456. Datas relativas ao dia da carga.
+-- PDFs de exemplo do repositório: depois desta carga, com a API no ar,
+-- rode "npm run dados-pdf" em server/ (envia os arquivos ao S3/disco).
 -- Execute depois de 01_schema.sql.
 -- ============================================================
 
@@ -34,7 +38,10 @@ INSERT INTO socio_leitor (id, nome, cpf, rg, telefone, email, endereco_rua, ende
      public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 100, CURRENT_DATE - 100),
     ('50000000-0000-0000-0000-000000000004', 'Pedro Henrique Costa', '38561392061', '4567890', '82999990004',
      NULL, 'Rua Domingos Correia', '78', 'Primavera', '57304000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 60, CURRENT_DATE - 60);
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 60, CURRENT_DATE - 60),
+    ('50000000-0000-0000-0000-000000000005', 'Lúcia Ferreira Gomes', '02011294002', '5678901', '82999990005',
+     'lucia.ferreira@example.com', 'Rua Boa Vista', '210', 'Santa Edwiges', '57310000',
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 90, CURRENT_DATE - 90);
 
 -- Acervo -----------------------------------------------------
 INSERT INTO autor (id, nome) VALUES
@@ -42,7 +49,9 @@ INSERT INTO autor (id, nome) VALUES
     ('c0000000-0000-0000-0000-000000000002', 'Rachel de Queiroz'),
     ('c0000000-0000-0000-0000-000000000003', 'Jorge Amado'),
     ('c0000000-0000-0000-0000-000000000004', 'Monteiro Lobato'),
-    ('c0000000-0000-0000-0000-000000000005', 'Leandro Gomes de Barros');
+    ('c0000000-0000-0000-0000-000000000005', 'Leandro Gomes de Barros'),
+    ('c0000000-0000-0000-0000-000000000006', 'Clarice Lispector'),
+    ('c0000000-0000-0000-0000-000000000007', 'Instituto Histórico de Arapiraca');
 
 INSERT INTO livro (id, titulo, editora, edicao, ano, categoria, secao, isbn, sinopse) VALUES
     ('b0000000-0000-0000-0000-000000000001', 'Vidas Secas', 'Record', '120ª', 2013, 'literatura', 'L',
@@ -54,9 +63,16 @@ INSERT INTO livro (id, titulo, editora, edicao, ano, categoria, secao, isbn, sin
     ('b0000000-0000-0000-0000-000000000004', 'Reinações de Narizinho', 'Globinho', '2ª', 2019, 'infantil', 'I',
      '9788525066473', NULL),
     ('b0000000-0000-0000-0000-000000000005', 'A Peleja do Diabo com o Dono do Céu', 'Edição do autor', '1ª', 1950, 'cordel', 'C',
-     NULL, 'Folheto de cordel - consulta local.');
+     NULL, 'Folheto de cordel - consulta local.'),
+    ('b0000000-0000-0000-0000-000000000006', 'A Hora da Estrela', 'Rocco', '1ª', 2017, 'literatura', 'L',
+     '9788532530813', 'Macabéa, nordestina no Rio de Janeiro, narrada por Rodrigo S. M.'),
+    -- obra rara: só consulta local; a leitura é pela digitalização (US18)
+    ('b0000000-0000-0000-0000-000000000007', 'Memórias da Fundação de Arapiraca', 'Edição histórica', 'Única', 1924,
+     'raro', 'M', NULL, 'Documento raro sobre a formação do povoado que deu origem à cidade.');
 
 INSERT INTO livro_autor (livro_id, autor_id, ordem) VALUES
+    ('b0000000-0000-0000-0000-000000000006', 'c0000000-0000-0000-0000-000000000006', 1),
+    ('b0000000-0000-0000-0000-000000000007', 'c0000000-0000-0000-0000-000000000007', 1),
     ('b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 1),
     ('b0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', 1),
     ('b0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000003', 1),
@@ -72,7 +88,10 @@ INSERT INTO exemplar (id, livro_id, tombamento, status, data_entrada) VALUES
     ('e0000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000003', 'BM-000006', 'ocioso', '2010-01-15'),
     ('e0000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000004', 'BM-000007', 'disponivel', '2022-02-14'),
     ('e0000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000004', 'BM-000008', 'disponivel', '2022-02-14'),
-    ('e0000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000005', 'BM-000009', 'disponivel', '2005-06-30');
+    ('e0000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000005', 'BM-000009', 'disponivel', '2005-06-30'),
+    ('e0000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000006', 'BM-000010', 'disponivel', '2023-04-11'),
+    ('e0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000006', 'BM-000011', 'disponivel', '2023-04-11'),
+    ('e0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000007', 'BM-000012', 'disponivel', '1998-09-01');
 
 -- Circulação -------------------------------------------------
 -- Ordem importa: os triggers validam RN01/RN08 no momento do INSERT.
@@ -101,6 +120,23 @@ INSERT INTO notificacao (socio_id, emprestimo_id, tipo, referencia, destinatario
      CURRENT_DATE + 1, '(sem e-mail)', 'Lembrete: devolução de "Capitães da Areia"',
      'Olá, Pedro! O prazo de devolução do livro "Capitães da Areia" termina amanhã.',
      'falha', 'Cadastro sem e-mail válido. Atualize o cadastro do sócio-leitor.');
+
+-- Lúcia: dois exemplares atrasados (3 e 8 dias). A multa corrente soma
+-- R$ 1,00 por dia de cada exemplar: R$ 11,00 até hoje (US11 / RN03).
+-- O trigger recusa empréstimo novo de quem já tem atraso (RN08), então os
+-- dois entram no prazo e só depois as datas passam para o passado.
+INSERT INTO emprestimo (id, socio_id, exemplar_id, data_emprestimo, data_prevista) VALUES
+    ('f0000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000005',
+     'e0000000-0000-0000-0000-000000000010', CURRENT_DATE, CURRENT_DATE + 14),
+    ('f0000000-0000-0000-0000-000000000007', '50000000-0000-0000-0000-000000000005',
+     'e0000000-0000-0000-0000-000000000011', CURRENT_DATE, CURRENT_DATE + 14);
+UPDATE emprestimo SET data_emprestimo = CURRENT_DATE - 17, data_prevista = CURRENT_DATE - 3
+ WHERE id = 'f0000000-0000-0000-0000-000000000006';
+UPDATE emprestimo SET data_emprestimo = CURRENT_DATE - 22, data_prevista = CURRENT_DATE - 8
+ WHERE id = 'f0000000-0000-0000-0000-000000000007';
+INSERT INTO emprestimo_evento (emprestimo_id, data, texto) VALUES
+    ('f0000000-0000-0000-0000-000000000006', now() - interval '17 days', 'Empréstimo registrado.'),
+    ('f0000000-0000-0000-0000-000000000007', now() - interval '22 days', 'Empréstimo registrado.');
 
 -- Históricos já devolvidos (não passam pela validação de empréstimo novo)
 INSERT INTO emprestimo (id, socio_id, exemplar_id, data_emprestimo, data_prevista, data_devolucao, status) VALUES
@@ -151,11 +187,25 @@ INSERT INTO instituicao (id, tipo, nome, documento, endereco, contato) VALUES
      'Rua das Flores, 5 - Arapiraca/AL', '82988887777');
 
 -- Mural ------------------------------------------------------
+-- Eventos futuros e passados, notícias e novidades, para conferir os filtros,
+-- a ordenação (eventos futuros primeiro) e o carrossel
 INSERT INTO publicacao (tipo, titulo, descricao, data, admin_id) VALUES
     ('evento', 'Sarau de Cordel', 'Apresentação de cordelistas da região no salão de leitura.', CURRENT_DATE + 7,
      'a0000000-0000-0000-0000-000000000001'),
     ('novidade', 'Novos títulos infantis', 'Chegaram novos exemplares de Monteiro Lobato.', CURRENT_DATE,
-     'a0000000-0000-0000-0000-000000000001');
+     'a0000000-0000-0000-0000-000000000001'),
+    ('evento', 'Oficina de Xilogravura', 'Oficina gratuita para jovens a partir de 12 anos. Vagas limitadas.',
+     CURRENT_DATE + 15, 'a0000000-0000-0000-0000-000000000001'),
+    ('noticia', 'Horário estendido durante as provas',
+     'A biblioteca abre das 8h às 21h de segunda a sexta até o fim do semestre.', CURRENT_DATE - 3,
+     'a0000000-0000-0000-0000-000000000001'),
+    ('noticia', 'Acervo digital de obras raras',
+     'Obras raras agora podem ser lidas no Repositório Digital, sem manusear o original.', CURRENT_DATE - 10,
+     'a0000000-0000-0000-0000-000000000001'),
+    ('evento', 'Encontro com autores alagoanos', 'Bate-papo com escritores da região e sessão de autógrafos.',
+     CURRENT_DATE - 20, 'a0000000-0000-0000-0000-000000000001'),
+    ('novidade', 'Clarice Lispector no acervo', 'Chegaram dois exemplares de "A Hora da Estrela".',
+     CURRENT_DATE - 30, 'a0000000-0000-0000-0000-000000000001');
 
 -- Repositório digital ----------------------------------------
 INSERT INTO pasta_historica (id, nome, descricao) VALUES

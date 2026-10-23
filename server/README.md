@@ -22,11 +22,12 @@ então o front chama `fetch("/api/auth/login")` sem se preocupar com CORS.
 ```bash
 npm run testar-login        # 22 verificações de login e cadastro (API precisa estar rodando)
 npm run testar-acervo       # 48 verificações das rotas de acervo
-npm run testar-circulacao   # 66 verificações de empréstimos, renovações, multas, reservas e sócios
-npm run testar-repositorio  # 41 verificações de arquivos, repositório digital e consulta pública
-npm run testar-mural        # 21 verificações do mural (publicações e imagens)
+npm run testar-circulacao   # 73 verificações de empréstimos, renovações, multas, situação do sócio, reservas e sócios
+npm run testar-repositorio  # 52 verificações de arquivos (inclusive limites de tamanho), repositório e consulta pública
+npm run testar-mural        # 34 verificações do mural (publicações, imagens, filtros e ordenação)
 npm run testar-s3           # grava, lê e apaga um objeto no armazenamento (não usa o banco)
 npm run tipos               # checagem de tipos
+npm run dados-pdf           # envia os PDFs de exemplo do repositório (depois de 02_dados_exemplo.sql)
 ```
 
 > Os scripts gravam no banco: sócios, obras, empréstimos e arquivos "de teste" (CPF, ISBN e tombamentos aleatórios a
@@ -243,7 +244,8 @@ são conferidas pelos triggers do banco (`fn_validar_emprestimo`, `fn_validar_re
 | Método | Rota | Quem | O que faz |
 |---|---|---|---|
 | GET | `/api/circulacao` | admin | `{ socios, emprestimos, multas, ocorrencias, reservas }` no formato de `src/lib/types.ts`; antes, expira as reservas vencidas |
-| GET | `/api/eu/circulacao` | sócio | o próprio cadastro, empréstimos, multas e reservas |
+| GET | `/api/eu/circulacao` | sócio | o próprio cadastro, empréstimos, multas, reservas e `situacao` (abaixo) |
+| GET | `/api/socios/:id/situacao` | admin | conferência no balcão antes do empréstimo: `{ ativo, emprestimosAtivos, reservasAtivas, limite, emprestimosAtrasados, multaCorrente, multasAbertas, totalMultas, bloqueado, motivo? }` |
 | POST | `/api/emprestimos` | admin | `{ socioId, exemplarId }`: RN06 (sócio ativo), RN08 (pendências), RN04 (obra restrita), RN14 (exemplar já emprestado), RN01 (até 3 itens), reserva de outro sócio; prazo de 14 dias (RN02) |
 | POST | `/api/emprestimos/:id/renovar` | admin | +14 dias, até 3 vezes (RN17); empréstimo atrasado não renova |
 | PATCH | `/api/emprestimos/:id` | admin | `{ dataPrevista, motivo }`: altera o prazo (não antes da saída; motivo ≥ 10 caracteres) |
@@ -257,6 +259,22 @@ são conferidas pelos triggers do banco (`fn_validar_emprestimo`, `fn_validar_re
 
 Cada empréstimo devolve o `historico` (tabela `emprestimo_evento`): registro, renovações, alterações de prazo,
 cancelamento e devolução.
+
+**Multa por atraso (US11 / RN03):** R$ 1,00 por dia e **por exemplar**. Enquanto o livro não volta, a `multaCorrente` da
+situação soma os dias de atraso de todos os exemplares do sócio (ex.: 3 dias num e 8 noutro = R$ 11,00). Na devolução,
+cada exemplar vira uma multa própria, com os dias dele. Atraso ou multa em aberto (inclusive em análise) bloqueia novo
+empréstimo e reserva (RN08).
+
+Exemplo de erro (todas as rotas respondem assim): `409 { "ok": false, "mensagem": "Limite de 3 renovações atingido (RN17)." }`.
+
+| Código | Quando |
+|---|---|
+| `400` | dado inválido (motivo curto, data malformada, formato de arquivo) |
+| `401` / `403` | sem token / perfil sem permissão |
+| `404` | registro inexistente |
+| `409` | regra de negócio (RN01, RN04, RN08, RN14, RN17, empréstimo devolvido ou cancelado...) |
+| `413` | arquivo acima do limite |
+| `503` | armazenamento (S3/disco) indisponível |
 
 ## Sócios-leitores (administrador)
 
@@ -277,8 +295,8 @@ arquivo sobe por `POST /api/arquivos` e depois é ligado a um documento, a uma f
 
 | Método | Rota | Quem | O que faz |
 |---|---|---|---|
-| POST | `/api/arquivos` | admin | corpo binário (até 15 MB); `Content-Type` (PDF, JPG, PNG ou WEBP), `X-Nome-Arquivo` (com `encodeURIComponent`), `X-Compressao` (`webp`, `gzip` ou `nenhuma`) e `X-Tamanho-Original`. Confere a assinatura do conteúdo e grava no S3 |
-| GET | `/api/arquivos/:id` | depende | digitalização do repositório: **pública**; foto: o próprio sócio e admin; demais: admin. PDF guardado em gzip sai com `Content-Encoding: gzip` (o navegador descomprime) |
+| POST | `/api/arquivos` | admin | corpo binário: **PDF até 15 MB, imagem até 5 MB** (já comprimidos; acima disso, `413`); `Content-Type` (PDF, JPG, PNG ou WEBP), `X-Nome-Arquivo` (com `encodeURIComponent`), `X-Compressao` (`webp`, `gzip` ou `nenhuma`), `X-Tamanho-Original` e `X-Destino` (`mural`, `acervo`, `documentos`, `socios` ou `danos`). Confere a assinatura do conteúdo e grava no S3; falha no S3 responde `503` |
+| GET | `/api/arquivos/:id` | depende | digitalização do repositório e imagem do mural: **públicas**; foto: o próprio sócio e admin; demais: admin. PDF guardado em gzip sai com `Content-Encoding: gzip` (o navegador descomprime); objeto ausente no S3 responde `503` |
 | DELETE | `/api/arquivos/:id` | admin | apaga upload que nada usa (cadastro desistido) |
 | GET | `/api/repositorio` | público | `{ pastas, documentos }` (o `id` do documento é o do arquivo) |
 | POST | `/api/documentos` | admin | `{ arquivoId, titulo, formato, descricao?, vinculo: { tipo: "livro", livroId } \| { tipo: "pasta", pastaId } }` (RF08) |
@@ -294,7 +312,7 @@ Código em [src/mural.ts](src/mural.ts). Notícias, eventos e novidades literár
 
 | Método | Rota | Quem | O que faz |
 |---|---|---|---|
-| GET | `/api/mural` | público | `{ publicacoes }` no formato de `Publicacao` (`imagemIds` em ordem) |
+| GET | `/api/mural` | público | `{ publicacoes }` no formato de `Publicacao` (`imagemIds` em ordem). Filtros opcionais: `tipo` (`noticia`, `evento`, `novidade`), `busca` (título e descrição, sem diferenciar acentos e maiúsculas), `de` e `ate` (`AAAA-MM-DD`) e `ordem` (`destaque`, padrão: eventos futuros primeiro, do mais próximo; depois o restante do mais recente; `recentes`; `antigas`). Ex.: `/api/mural?tipo=evento&de=2026-10-01` |
 | POST | `/api/publicacoes` | admin | `{ tipo: "noticia" \| "evento" \| "novidade", titulo, descricao, data, imagemIds }`: título ≥ 3 caracteres, descrição e/ou imagem, data obrigatória, até 10 imagens já enviadas por `POST /api/arquivos` |
 | PUT | `/api/publicacoes/:id` | admin | altera; as imagens retiradas da publicação são apagadas do banco e do S3 |
 | DELETE | `/api/publicacoes/:id` | admin | remove a publicação e as imagens dela |
@@ -330,8 +348,8 @@ Limitações conhecidas desse modo:
 - **Continuam locais:** mesas de estudo e fila, doações (recusadas com a sessão pela API), notificações e backups. Agendamentos de mesa feitos com os sócios de demonstração aparecem sem o nome do sócio.
 - **Importação de sócios por planilha** é recusada com a sessão pela API (a planilha não traz o consentimento LGPD que
   o banco exige); cadastre pela tela Sócios-leitores.
-- **Dados de demonstração:** os PDFs de exemplo do navegador não existem no banco; o repositório começa só com a pasta
-  dos dados de exemplo.
+- **Dados de demonstração:** os PDFs de exemplo do navegador não existem no banco; rode `npm run dados-pdf` para enviar
+  a digitalização da obra rara e um recorte da pasta histórica.
 - **Modo offline:** um sócio cadastrado pelo administrador no banco só entra com a API no ar (não há senha local para ele).
 - Restaurar um backup ou a demonstração (tela Backups) troca os dados locais por uma cópia antiga; os do banco voltam
   no próximo login.

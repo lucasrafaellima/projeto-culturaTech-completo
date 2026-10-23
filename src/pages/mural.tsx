@@ -34,7 +34,7 @@ import { removerArquivos } from "@/lib/arquivos"
 import { labelPublicacao } from "@/lib/constants"
 import { navegar } from "@/lib/navigation"
 import { exemplarNoAcervo } from "@/lib/regras"
-import { cn, formatDate } from "@/lib/utils"
+import { cn, formatDate, normalizar } from "@/lib/utils"
 import type { Publicacao, TipoPublicacao } from "@/lib/types"
 
 const iconePublicacao: Record<TipoPublicacao, typeof Newspaper> = {
@@ -69,6 +69,7 @@ export function MuralPage() {
   const ehAdmin = perfil === "admin"
 
   const [filtro, setFiltro] = useState<TipoPublicacao | "todas">("todas")
+  const [busca, setBusca] = useState("")
   const [editando, setEditando] = useState<{ id?: string; form: Form } | null>(null)
   const [excluindo, setExcluindo] = useState<Publicacao | null>(null)
   const [aberta, setAberta] = useState<Publicacao | null>(null)
@@ -83,7 +84,11 @@ export function MuralPage() {
   const demais = publicacoes
     .filter((p) => !(p.tipo === "evento" && p.data >= hoje))
     .sort((a, b) => b.data.localeCompare(a.data))
-  const ordenadas = [...futuros, ...demais].filter((p) => filtro === "todas" || p.tipo === filtro)
+  // filtros da consulta pública (US22): tipo e busca por título ou descrição, sem login
+  const termo = normalizar(busca)
+  const ordenadas = [...futuros, ...demais].filter(
+    (p) => (filtro === "todas" || p.tipo === filtro) && (!termo || normalizar(`${p.titulo} ${p.descricao}`).includes(termo)),
+  )
 
   function salvar() {
     if (!editando) return
@@ -155,7 +160,18 @@ export function MuralPage() {
             <Newspaper className="h-5 w-5 text-primary" />
             Mural Cultural
           </h3>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative sm:w-56">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                className="pl-9"
+                aria-label="Buscar no mural"
+                placeholder="Buscar no mural..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
             <Select
               aria-label="Filtrar publicações"
               value={filtro}
@@ -176,10 +192,12 @@ export function MuralPage() {
         </div>
 
         {ordenadas.length === 0 ? (
-          <Card className="p-8 text-center text-muted-foreground">Nenhuma publicação no mural.</Card>
+          <Card className="p-8 text-center text-muted-foreground">
+            {publicacoes.length === 0 ? "Nenhuma publicação no mural." : "Nenhuma publicação encontrada com esses filtros."}
+          </Card>
         ) : (
           <CarrosselMural
-            key={filtro}
+            key={`${filtro}|${termo}`}
             publicacoes={ordenadas}
             hoje={hoje}
             ehAdmin={ehAdmin}
@@ -287,6 +305,7 @@ export function MuralPage() {
                 ids={editando.form.imagemIds}
                 onChange={(imagemIds) => setEditando({ ...editando, form: { ...editando.form, imagemIds } })}
                 destino="mural"
+                maximo={10}
               />
             </div>
             <Rodape>

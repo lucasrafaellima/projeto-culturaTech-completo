@@ -124,6 +124,45 @@ async function motivoBloqueio(c: Consulta, socioId: string): Promise<string | nu
   return partes.length ? partes.join(" e ") : null
 }
 
+// Situação do sócio para o balcão (US08 / US11): limite de empréstimos, pendências
+// e a multa que corre nos exemplares atrasados — R$ 1,00 por dia e por exemplar,
+// somados (RN03). A multa corrente vira multa de verdade na devolução de cada um.
+async function situacaoDoSocio(c: Consulta, socioId: string) {
+  const { rows } = await c.query<{
+    ativo: boolean
+    emprestimos_ativos: number
+    reservas_ativas: number
+    multas_abertas: number
+    total_multas: number
+    emprestimos_atrasados: number
+    multa_corrente: number
+  }>(
+    `SELECT s.ativo AND NOT s.anonimizado AS ativo,
+            (SELECT count(*) FROM emprestimo WHERE socio_id = s.id AND status = 'ativo')::int AS emprestimos_ativos,
+            (SELECT count(*) FROM reserva WHERE socio_id = s.id AND status = 'ativa')::int AS reservas_ativas,
+            v.multas_abertas::int AS multas_abertas, v.total_multas::float8 AS total_multas,
+            v.emprestimos_atrasados::int AS emprestimos_atrasados, v.multa_corrente::float8 AS multa_corrente
+       FROM socio_leitor s JOIN vw_situacao_socio v ON v.socio_id = s.id
+      WHERE s.id = $1`,
+    [socioId],
+  )
+  const s = rows[0]
+  if (!s) return null
+  const motivo = await motivoBloqueio(c, socioId)
+  return {
+    ativo: s.ativo, // RN06
+    emprestimosAtivos: s.emprestimos_ativos,
+    reservasAtivas: s.reservas_ativas,
+    limite: MAX_EXEMPLARES_SIMULTANEOS, // RN01: empréstimos e reservas somados
+    emprestimosAtrasados: s.emprestimos_atrasados,
+    multaCorrente: s.multa_corrente,
+    multasAbertas: s.multas_abertas,
+    totalMultas: s.total_multas,
+    bloqueado: motivo !== null, // RN08
+    ...(motivo ? { motivo } : {}),
+  }
+}
+
 async function evento(c: pg.PoolClient, emprestimoId: string, textoEvento: string) {
   await c.query("INSERT INTO emprestimo_evento (emprestimo_id, texto) VALUES ($1, $2)", [emprestimoId, textoEvento])
 }
@@ -181,13 +220,22 @@ rotasCirculacao.get("/eu/circulacao", exigirLogin, async (_req, res) => {
   const usuario = res.locals.usuario as UsuarioLogado
   if (usuario.perfil !== "socio") throw new ErroRegra(403, "Rota exclusiva para sócios-leitores.")
   await expirarReservas(pool)
-  const [socio, emprestimos, multas, reservas] = await Promise.all([
+  const [socio, emprestimos, multas, reservas, situacao] = await Promise.all([
     listarSocios(pool, "s.id = $1", [usuario.id]),
     listarEmprestimos(pool, "e.socio_id = $1", [usuario.id]),
     listarMultas(pool, "m.socio_id = $1", [usuario.id]),
     listarReservas(pool, "r.socio_id = $1", [usuario.id]),
+    situacaoDoSocio(pool, usuario.id),
   ])
-  res.json({ ok: true, socio: socio[0], emprestimos, multas, reservas })
+  res.json({ ok: true, socio: socio[0], emprestimos, multas, reservas, situacao })
+})
+
+// GET /api/socios/:id/situacao  (admin: conferência no balcão antes do empréstimo)
+rotasCirculacao.get("/socios/:id/situacao", exigirAdmin, async (req, res) => {
+  const id = idDe(req, "Sócio-leitor não encontrado.")
+  const situacao = await situacaoDoSocio(pool, id)
+  if (!situacao) throw new ErroRegra(404, "Sócio-leitor não encontrado.")
+  res.json({ ok: true, situacao })
 })
 
 // ------------------------------------------------------------

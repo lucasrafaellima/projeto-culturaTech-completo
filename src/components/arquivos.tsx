@@ -41,19 +41,32 @@ export function ImagemArmazenada({
   return <img src={url} alt={alt} className={cn("object-cover", className)} />
 }
 
-/** Visualizador de PDF no navegador (RF17). */
+/** Visualizador de PDF no navegador (RF17 / US18): estados de carregamento e de arquivo indisponível. */
 export function VisualizadorPdf({ id, titulo }: { id: string; titulo: string }) {
-  const { url, carregando } = useArquivoUrl(id)
+  const { url, carregando, recarregar } = useArquivoUrl(id)
   if (carregando || !url) {
     return (
-      <div className="flex h-[60vh] items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-sm text-muted-foreground">
+      <div
+        role="status"
+        className="flex h-[50vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/40 p-6 text-center text-sm text-muted-foreground sm:h-[60vh]"
+      >
         {carregando ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Descomprimindo e carregando o documento...
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <p>Carregando o documento...</p>
           </>
         ) : (
           <>
-            <FileText className="mr-2 h-4 w-4" /> Arquivo não encontrado neste navegador.
+            <FileText className="h-8 w-8" />
+            <div>
+              <p className="font-medium text-foreground">Arquivo indisponível no momento</p>
+              <p className="mt-1">
+                O documento não pôde ser carregado. Verifique a conexão e tente de novo; se continuar, avise a biblioteca.
+              </p>
+            </div>
+            <Button variante="outline" tamanho="sm" onClick={recarregar}>
+              Tentar de novo
+            </Button>
           </>
         )}
       </div>
@@ -61,8 +74,17 @@ export function VisualizadorPdf({ id, titulo }: { id: string; titulo: string }) 
   }
   return (
     <div className="space-y-2">
-      <iframe title={titulo} src={url} className="h-[65vh] w-full rounded-lg border border-border bg-muted" />
-      <p className="text-xs text-muted-foreground">
+      {/* no celular o leitor embutido costuma não abrir PDF: o link para abrir fica em destaque */}
+      <iframe title={titulo} src={url} className="hidden h-[65vh] w-full rounded-lg border border-border bg-muted sm:block" />
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/40 p-4 text-sm font-medium text-primary sm:hidden"
+      >
+        <FileText className="h-5 w-5" /> Abrir o documento
+      </a>
+      <p className="hidden text-xs text-muted-foreground sm:block">
         Se o documento não aparecer,{" "}
         <a href={url} target="_blank" rel="noreferrer" className="font-medium text-primary underline">
           abra em uma nova aba
@@ -95,22 +117,28 @@ export function SeletorImagens({
   const { notificar } = useToast()
   const { sessao } = useStore()
   const [enviando, setEnviando] = useState(false)
+  const [erros, setErros] = useState<string[]>([])
   const token = destino && sessao.perfil === "admin" ? sessao.token : undefined
   const servidor = token && destino ? { token, destino } : undefined
 
   async function aoEscolher(arquivos: FileList | null) {
     if (!arquivos || arquivos.length === 0) return
-    const lista = Array.from(arquivos).slice(0, maximo - ids.length)
+    const todos = Array.from(arquivos)
+    const lista = todos.slice(0, maximo - ids.length)
     setEnviando(true)
     const novos: string[] = []
+    const falhas: string[] = []
+    if (todos.length > lista.length) falhas.push(`Limite de ${maximo} imagens: ${todos.length - lista.length} não foram anexadas.`)
     for (const arq of lista) {
       try {
         const r = await armazenarImagem(arq, undefined, servidor)
         novos.push(r.id)
       } catch (err) {
+        falhas.push(`${arq.name}: ${(err as Error).message}`)
         notificar(`${arq.name}: ${(err as Error).message}`, false)
       }
     }
+    setErros(falhas)
     setEnviando(false)
     if (novos.length) onChange([...ids, ...novos])
     if (input.current) input.current.value = ""
@@ -156,6 +184,13 @@ export function SeletorImagens({
           </Button>
           <p className="text-xs text-muted-foreground">Formatos aceitos: WEBP, JPG e PNG (RNF12).</p>
         </>
+      )}
+      {erros.length > 0 && (
+        <ul role="alert" className="space-y-0.5 rounded-lg border border-danger/30 bg-danger/5 p-2 text-xs text-danger">
+          {erros.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
       )}
     </div>
   )

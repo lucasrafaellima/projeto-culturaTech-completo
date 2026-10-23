@@ -100,6 +100,34 @@ conferir("imagem retirada da publicação é apagada", (await lerImagem(img2, ad
 conferir("imagem mantida continua pública", (await lerImagem(img1)) === 200)
 conferir("editar publicação inexistente: 404", (await chamar("PUT", "/publicacoes/00000000-0000-0000-0000-000000000000", base, admin)).status === 404)
 
+// ---------- filtros e ordenação da consulta pública (T11) ----------
+const ids = (r: { corpo: { publicacoes: { id: string }[] } }) => r.corpo.publicacoes.map((p) => p.id)
+const soEventos = await chamar("GET", "/mural?tipo=evento")
+conferir(
+  "filtro por tipo: só eventos",
+  soEventos.status === 200 && soEventos.corpo.publicacoes.every((p: { tipo: string }) => p.tipo === "evento") &&
+    ids(soEventos).includes(pub.id),
+  soEventos.corpo,
+)
+conferir("filtro por tipo exclui os demais", !ids(await chamar("GET", "/mural?tipo=noticia")).includes(pub.id))
+conferir("tipo inválido no filtro: 400", (await chamar("GET", "/mural?tipo=aviso")).status === 400)
+const porBusca = await chamar("GET", `/mural?busca=${encodeURIComponent(`SARAU EDITADO ${sufixo}`)}`)
+conferir("busca ignora maiúsculas", ids(porBusca).length === 1 && ids(porBusca)[0] === pub.id, porBusca.corpo)
+conferir("busca sem resultado: lista vazia", ids(await chamar("GET", `/mural?busca=nada-${sufixo}`)).length === 0)
+conferir("busca com % não vira curinga", ids(await chamar("GET", "/mural?busca=%25")).length === 0)
+conferir("período que inclui a data", ids(await chamar("GET", `/mural?de=${hoje}&ate=${hoje}`)).includes(pub.id))
+conferir("período sem a data", !ids(await chamar("GET", "/mural?ate=2000-01-01")).includes(pub.id))
+conferir("data de filtro inválida: 400", (await chamar("GET", "/mural?de=ontem")).status === 400)
+const recentes = (await chamar("GET", "/mural?ordem=recentes")).corpo.publicacoes as { data: string }[]
+conferir("ordem recentes: data decrescente", recentes.every((p, i) => i === 0 || recentes[i - 1].data >= p.data))
+const antigas = (await chamar("GET", "/mural?ordem=antigas")).corpo.publicacoes as { data: string }[]
+conferir("ordem antigas: data crescente", antigas.every((p, i) => i === 0 || antigas[i - 1].data <= p.data))
+const destaque = (await chamar("GET", "/mural")).corpo.publicacoes as { tipo: string; data: string }[]
+const futuro = (p: { tipo: string; data: string }) => p.tipo === "evento" && p.data >= hoje
+const nFuturos = destaque.filter(futuro).length
+conferir("ordem padrão: eventos futuros primeiro", destaque.slice(0, nFuturos).every(futuro), destaque)
+conferir("ordenação inválida: 400", (await chamar("GET", "/mural?ordem=aleatoria")).status === 400)
+
 // ---------- exclusão ----------
 const excluida = await chamar("DELETE", `/publicacoes/${pub.id}`, undefined, admin)
 conferir("excluir publicação: 200", excluida.status === 200, excluida.corpo)
