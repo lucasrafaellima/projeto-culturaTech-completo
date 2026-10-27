@@ -148,5 +148,5 @@ funciona sozinho, no modo de demonstração descrito abaixo:
 - **RNF07** (20.000 livros em até 5 s): a busca é feita em memória e é instantânea no volume de demonstração; com 20.000
   registros o gargalo passa a ser o limite de ~5 MB do localStorage, outro motivo para o back-end.
 
-Próximo passo natural: uma API (ex.: Node + PostgreSQL) que receba exatamente as ações do `store.tsx`, que já estão
-isoladas e com as mesmas assinaturas `{ ok, mensagem }`.
+Próximo passo natural: levar para a API em `server/` também mesas, doações, notificações e backups, seguindo as ações
+do `store.tsx`, que já estão isoladas e com as mesmas assinaturas `{ ok, mensagem }`.
