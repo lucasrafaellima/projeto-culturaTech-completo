@@ -111,7 +111,9 @@ seja contornada.
 | **US25** Meu histórico | Minha Área → Meu histórico de leitura | RF04, RN23 |
 | **US26** Meus reservados | Minha Área / Consulta → Reservar | RF14, RN28 |
 | **US27** Login por perfil | Entrar / menu por perfil | RNF02, RNF01 |
-| **US28** (W) | Fora do escopo, como definido no backlog | — |
+| **US28** (W) | Substituída pela US29 | — |
+| **US29** Espaço Kids | Mesas de Estudo → aba Espaço Kids / Criar conta e Sócios-leitores (data de nascimento) | Criança de até 11 anos sem cadastro (nome, CPF e nascimento), vinculada ao responsável; conta própria só a partir dos 12 anos; fila própria, encerrada quando o uso é confirmado |
+| **US30** Confirmar uso do espaço | Mesas de Estudo → Confirmar uso (administrador) | Sem confirmação em até 15 minutos do início do turno (ou do agendamento, se feito depois), a vaga é liberada e vai para o primeiro da fila |
 
 Além das histórias: backups automáticos diários com restauração (RNF05), textos em português com acentuação (RNF04) e
 layout responsivo com menu recolhível (RNF11).
@@ -131,6 +133,13 @@ resolvidos assim e podem ser ajustados:
 7. **Catalogação (RN19)**: segue o AACR2 — entrada pelo último sobrenome (“RAMOS, Graciliano”), com Filho/Júnior/Neto junto
    do sobrenome; até 3 autores, entrada principal pelo primeiro; mais de 3, entrada pelo título.
 8. **Turnos**: manhã 8h–12h, tarde 13h–17h, noite 18h–21h; agendamento com até 30 dias de antecedência.
+9. **Espaço Kids e RN05**: o agendamento feito para a criança não conta no limite de 1 turno por dia do responsável; o
+   limite vale para cada criança (pelo CPF). Um sócio-leitor pode agendar para mais de uma criança. A idade é conferida
+   na data do agendamento, e o CPF de um sócio-leitor cadastrado não é aceito como CPF de criança.
+10. **Fila do Espaço Kids**: quando o uso de uma mesa Kids é confirmado, todos os que aguardavam na fila daquele turno do
+    Espaço Kids saem dela (status "retirada"), conforme a US29, mesmo que o espaço tenha outra mesa.
+11. **Cadastros sem data de nascimento** (migrados ou anteriores à US29): continuam valendo; a ficha do sócio-leitor
+    avisa, e o administrador precisa informar a data na próxima edição do cadastro.
 
 ## Limites desta entrega
 

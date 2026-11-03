@@ -23,6 +23,7 @@ export type DadosCadastrais =
       rg: string
       telefone: string
       email: string
+      dataNascimento: string // "" em cadastros migrados
       endereco: { rua: string; numero: string; bairro: string; cep: string }
       dataCadastro: string
       consentimentoLgpd: string
@@ -31,6 +32,7 @@ export type DadosCadastrais =
 // Colunas de socio_leitor devolvidas ao front-end (login e cadastro)
 export const COLUNAS_CADASTRO_SOCIO = `
   cpf, rg, telefone, email, endereco_rua, endereco_numero, endereco_bairro, endereco_cep,
+  to_char(data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
   to_char(data_cadastro, 'YYYY-MM-DD') AS data_cadastro,
   to_char(consentimento_lgpd, 'YYYY-MM-DD') AS consentimento_lgpd`
 
@@ -43,6 +45,7 @@ export interface ColunasCadastroSocio {
   endereco_numero?: string | null
   endereco_bairro?: string | null
   endereco_cep?: string | null
+  data_nascimento?: string | null
   data_cadastro?: string | null
   consentimento_lgpd?: string | null
 }
@@ -53,6 +56,7 @@ export function cadastroDoSocio(r: ColunasCadastroSocio): DadosCadastrais {
     rg: r.rg ?? "",
     telefone: r.telefone ?? "",
     email: r.email ?? "",
+    dataNascimento: r.data_nascimento ?? "",
     endereco: {
       rua: r.endereco_rua ?? "",
       numero: r.endereco_numero ?? "",

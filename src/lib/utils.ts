@@ -53,6 +53,19 @@ export function diasAtraso(dataPrevista: string, ref: string = hojeISO()): numbe
   return Math.max(0, diffDias(dataPrevista, ref))
 }
 
+/** Data AAAA-MM-DD que existe no calendário (recusa 31/02, por exemplo). */
+export function dataValida(iso: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false
+  return paraISO(deISO(iso)) === iso
+}
+
+/** Idade completa em anos na data `ref` (aniversário conta a partir do próprio dia). */
+export function idade(dataNascimento: string, ref: string = hojeISO()): number {
+  const [an, mn, dn] = dataNascimento.split("-").map(Number)
+  const [ar, mr, dr] = ref.slice(0, 10).split("-").map(Number)
+  return ar - an - (mr < mn || (mr === mn && dr < dn) ? 1 : 0)
+}
+
 export function formatDate(valor: string): string {
   if (!valor) return "-"
   if (valor.length > 10) {

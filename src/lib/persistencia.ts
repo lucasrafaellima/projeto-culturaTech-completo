@@ -5,7 +5,7 @@
 // gerar, baixar, restaurar e importar backups manualmente.
 // ============================================================
 import type { Backup, Estado, Sessao } from "./types"
-import { VERSAO_ESTADO } from "./mock-data"
+import { VERSAO_ESTADO, completarEstado } from "./mock-data"
 import { agoraISO, hojeISO, uuid } from "./utils"
 
 const CHAVE_ESTADO = "culturatech:estado"
@@ -20,7 +20,7 @@ export function carregarEstado(): Estado | null {
     if (!bruto) return null
     const estado = JSON.parse(bruto) as Estado
     if (estado.versao !== VERSAO_ESTADO) return null
-    return estado
+    return completarEstado(estado)
   } catch {
     return null
   }
@@ -80,7 +80,9 @@ export function criarBackup(estado: Estado, automatico: boolean): Backup | null 
 export function lerBackup(id: string): Estado | null {
   try {
     const bruto = localStorage.getItem(PREFIXO_BACKUP + id)
-    return bruto ? (JSON.parse(bruto) as Estado) : null
+    if (!bruto) return null
+    const estado = JSON.parse(bruto) as Estado
+    return validarEstadoImportado(estado) ? completarEstado(estado) : estado
   } catch {
     return null
   }

@@ -99,6 +99,7 @@ export interface SocioLeitor {
   email: string
   fotoId?: string // imagem armazenada e comprimida (RNF12 / RNF13)
   endereco: Endereco
+  dataNascimento?: string // AAAA-MM-DD; conta só a partir dos 12 anos (US29). Ausente em cadastros migrados
   senha: string
   ativo: boolean
   dataCadastro: string
@@ -194,24 +195,38 @@ export interface Notificacao {
   tratadaEm?: string // falha tratada pelo administrador (reenvio)
 }
 
-// Mesas de estudo (RF10 / RF11)
+// Mesas de estudo (RF10 / RF11) e Espaço Kids (US29)
 export type Turno = "manha" | "tarde" | "noite"
+
+export type EspacoMesa = "estudo" | "kids"
 
 export interface MesaEstudo {
   id: string
   nome: string
   local: string
+  espaco?: EspacoMesa // ausente = mesa de estudo
+}
+
+// Criança de até 11 anos que usa o Espaço Kids: não tem cadastro, fica
+// ligada ao sócio-leitor que fez o agendamento (US29)
+export interface CriancaKids {
+  nome: string
+  cpf: string
+  dataNascimento: string // AAAA-MM-DD
 }
 
 export interface Agendamento {
   id: string
   mesaId: string
-  socioId: string
+  socioId: string // no Espaço Kids, o sócio-leitor responsável
   data: string
   turno: Turno
-  status: "confirmado" | "cancelado"
+  // nao_compareceu: uso não confirmado dentro da tolerância; a vaga foi liberada (US30)
+  status: "confirmado" | "cancelado" | "nao_compareceu"
   origem: "direto" | "fila"
   criadoEm: string
+  crianca?: CriancaKids // somente no Espaço Kids
+  usoConfirmadoEm?: string // ISO datetime — funcionário confirmou que o espaço está em uso (US30)
 }
 
 export interface EntradaFila {
@@ -220,8 +235,10 @@ export interface EntradaFila {
   data: string
   turno: Turno
   criadoEm: string // ISO datetime — define a ordem da fila
-  status: "aguardando" | "contemplado" | "desistiu" | "expirada"
+  // retirada: o uso do Espaço Kids foi confirmado e a fila do turno foi encerrada (US29)
+  status: "aguardando" | "contemplado" | "desistiu" | "expirada" | "retirada"
   agendamentoId?: string // agendamento gerado quando contemplado
+  crianca?: CriancaKids // presente = fila do Espaço Kids
 }
 
 // Parcerias e instituições (RF13 / RN25 / RN26)

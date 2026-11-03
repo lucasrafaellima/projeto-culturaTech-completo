@@ -20,7 +20,7 @@ Com a API e o front (`npm run dev` na raiz) rodando, o Vite repassa `/api/*` par
 então o front chama `fetch("/api/auth/login")` sem se preocupar com CORS.
 
 ```bash
-npm run testar-login        # 22 verificações de login e cadastro (API precisa estar rodando)
+npm run testar-login        # 28 verificações de login e cadastro (API precisa estar rodando)
 npm run testar-acervo       # 48 verificações das rotas de acervo
 npm run testar-circulacao   # 73 verificações de empréstimos, renovações, multas, situação do sócio, reservas e sócios
 npm run testar-repositorio  # 52 verificações de arquivos (inclusive limites de tamanho), repositório e consulta pública
@@ -117,7 +117,8 @@ Sócios anonimizados (LGPD) não entram.
 atrasada, para o front exibir o alerta da RN11.
 
 `cadastro` traz os dados do próprio usuário, com os nomes de `src/lib/types.ts`: `{ usuario }` para administrador;
-`{ cpf, rg, telefone, email, endereco, dataCadastro, consentimentoLgpd }` para sócio.
+`{ cpf, rg, telefone, email, dataNascimento, endereco, dataCadastro, consentimentoLgpd }` para sócio
+(`dataNascimento` vem `""` em cadastros migrados, que ainda não têm a data).
 
 ### Como o front usa o login e o cadastro
 
@@ -145,14 +146,15 @@ Cadastro feito pelo próprio visitante (tela "Criar conta"). Recebe os mesmos ca
 ```json
 {
   "nome": "Maria da Silva", "cpf": "111.444.777-35", "rg": "1234567",
-  "telefone": "(82) 99999-0000", "email": "maria@example.com",
+  "telefone": "(82) 99999-0000", "email": "maria@example.com", "dataNascimento": "1990-05-18",
   "endereco": { "rua": "Rua A", "numero": "10", "bairro": "Centro", "cep": "57300-000" },
   "senha": "minha-senha", "consentimentoLgpd": true
 }
 ```
 
-Aplica as mesmas validações do front (`validarSocio`): nome completo, CPF com dígito verificador, telefone com DDD,
-e-mail, endereço, CEP, senha de 6 a 72 caracteres sem espaço nas pontas e consentimento LGPD. O RG é opcional
+Aplica as mesmas validações do front (`validarSocio`): nome completo, CPF com dígito verificador, data de nascimento
+(`AAAA-MM-DD`, não futura, com **12 anos ou mais**: US29), telefone com DDD, e-mail, endereço, CEP, senha de 6 a 72
+caracteres sem espaço nas pontas e consentimento LGPD. As mesmas regras valem em `POST`/`PUT /api/socios`. O RG é opcional
 (até 20 caracteres; vazio vira `NULL` no banco).
 CPF, telefone e CEP são gravados só com dígitos; o e-mail, em minúsculas; `consentimento_lgpd` recebe a data do dia.
 

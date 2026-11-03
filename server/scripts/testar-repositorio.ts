@@ -197,7 +197,7 @@ const cpf = (() => {
   return n.join("")
 })()
 const socio = await chamar("POST", "/socios", {
-  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`,
+  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`, dataNascimento: "1992-04-10",
   endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, senha: "senha-teste", consentimentoLgpd: true,
   fotoId: foto.corpo.arquivo.id,
 }, admin)
@@ -210,7 +210,7 @@ conferir("foto em uso não é apagada", (await chamar("DELETE", `/arquivos/${fot
 conferir("foto gravada na pasta socios/", (await chaveDe(foto.corpo.arquivo.id))?.startsWith("socios/") === true, await chaveDe(foto.corpo.arquivo.id))
 const fotoDoMural = await enviar(png, "image/png", admin, { "X-Destino": "mural" })
 const comFotoErrada = await chamar("PUT", `/socios/${socio.corpo.socio.id}`, {
-  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`,
+  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`, dataNascimento: "1992-04-10",
   endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, consentimentoLgpd: true,
   fotoId: fotoDoMural.corpo.arquivo.id,
 }, admin)

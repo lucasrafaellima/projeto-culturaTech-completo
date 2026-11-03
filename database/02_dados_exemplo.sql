@@ -26,22 +26,28 @@ INSERT INTO administrador (id, nome, matricula, usuario, senha_hash) VALUES
      public.crypt('admin123', public.gen_salt('bf')));
 
 INSERT INTO socio_leitor (id, nome, cpf, rg, telefone, email, endereco_rua, endereco_numero,
-                          endereco_bairro, endereco_cep, senha_hash, data_cadastro, consentimento_lgpd) VALUES
+                          endereco_bairro, endereco_cep, senha_hash, data_cadastro, consentimento_lgpd,
+                          data_nascimento) VALUES
     ('50000000-0000-0000-0000-000000000001', 'Maria Joana da Silva', '52998224725', '1234567', '82999990001',
      'maria.joana@example.com', 'Rua São Francisco', '120', 'Centro', '57300000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 200, CURRENT_DATE - 200),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 200, CURRENT_DATE - 200,
+     DATE '1988-03-14'),
     ('50000000-0000-0000-0000-000000000002', 'João Pedro Santos', '15350946056', '2345678', '82999990002',
      'joao.pedro@example.com', 'Avenida Rio Branco', '45', 'Baixa Grande', '57307000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 150, CURRENT_DATE - 150),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 150, CURRENT_DATE - 150,
+     DATE '1979-11-02'),
     ('50000000-0000-0000-0000-000000000003', 'Ana Beatriz Lima', '71460238001', '3456789', '82999990003',
      'ana.beatriz@example.com', 'Rua Expedicionários', '300', 'Eldorado', '57306000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 100, CURRENT_DATE - 100),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 100, CURRENT_DATE - 100,
+     DATE '1995-07-21'),
     ('50000000-0000-0000-0000-000000000004', 'Pedro Henrique Costa', '38561392061', '4567890', '82999990004',
      NULL, 'Rua Domingos Correia', '78', 'Primavera', '57304000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 60, CURRENT_DATE - 60),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 60, CURRENT_DATE - 60,
+     DATE '1962-01-30'),
     ('50000000-0000-0000-0000-000000000005', 'Lúcia Ferreira Gomes', '02011294002', '5678901', '82999990005',
      'lucia.ferreira@example.com', 'Rua Boa Vista', '210', 'Santa Edwiges', '57310000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 90, CURRENT_DATE - 90);
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 90, CURRENT_DATE - 90,
+     DATE '1991-05-18');
 
 -- Acervo -----------------------------------------------------
 INSERT INTO autor (id, nome) VALUES

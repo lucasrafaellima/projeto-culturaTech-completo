@@ -3,6 +3,7 @@ import { Eye, EyeOff, UserPlus } from "lucide-react"
 import { useStore, type DadosSocio } from "@/lib/store"
 import { navegar, rotaInicialPorPerfil } from "@/lib/navigation"
 import { Aviso, Button, Card, Campo, Input, useToast } from "@/components/ui"
+import { IDADE_MINIMA_SOCIO } from "@/lib/constants"
 import { formatCep, formatCpf, formatTelefone } from "@/lib/utils"
 
 const formVazio = (): DadosSocio => ({
@@ -11,6 +12,7 @@ const formVazio = (): DadosSocio => ({
   rg: "",
   telefone: "",
   email: "",
+  dataNascimento: "",
   endereco: { rua: "", numero: "", bairro: "", cep: "" },
   senha: "",
   consentimentoLgpd: false,
@@ -18,7 +20,7 @@ const formVazio = (): DadosSocio => ({
 
 // Cadastro de usuário feito pelo próprio visitante (cria um sócio-leitor)
 export function CadastroPage() {
-  const { cadastrarConta, sessao } = useStore()
+  const { cadastrarConta, sessao, hoje } = useStore()
   const { notificar } = useToast()
   const [form, setForm] = useState<DadosSocio>(formVazio)
   const [confirmacao, setConfirmacao] = useState("")
@@ -82,6 +84,18 @@ export function CadastroPage() {
                 />
               )}
             </Campo>
+            <Campo rotulo="Data de nascimento" dica={`Conta própria a partir dos ${IDADE_MINIMA_SOCIO} anos.`}>
+              {(id) => (
+                <Input
+                  id={id}
+                  type="date"
+                  autoComplete="bday"
+                  max={hoje}
+                  value={form.dataNascimento}
+                  onChange={(e) => set("dataNascimento", e.target.value)}
+                />
+              )}
+            </Campo>
             <Campo rotulo="RG" opcional>
               {(id) => <Input id={id} value={form.rg} onChange={(e) => set("rg", e.target.value)} />}
             </Campo>
@@ -97,7 +111,7 @@ export function CadastroPage() {
                 />
               )}
             </Campo>
-            <Campo rotulo="E-mail">
+            <Campo rotulo="E-mail" className="sm:col-span-2">
               {(id) => (
                 <Input id={id} type="email" autoComplete="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
               )}

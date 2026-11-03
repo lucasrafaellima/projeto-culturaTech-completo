@@ -200,7 +200,7 @@ export function Input({ className, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       className={cn(
-        "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60",
+        "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 aria-invalid:border-danger aria-invalid:focus-visible:ring-danger/40",
         className,
       )}
       {...props}
@@ -242,17 +242,19 @@ export function Label({ children, className, htmlFor }: { children: ReactNode; c
   )
 }
 
-/** Campo com rótulo e dica, ligados ao input por id (acessibilidade). */
+/** Campo com rótulo, dica e erro, ligados ao input por id (acessibilidade). */
 export function Campo({
   rotulo,
   opcional,
   dica,
+  erro,
   children,
   className,
 }: {
   rotulo: string
   opcional?: boolean
   dica?: ReactNode
+  erro?: string | null // mensagem do campo com erro; o input deve usar aria-invalid
   children: (id: string) => ReactNode
   className?: string
 }) {
@@ -264,7 +266,13 @@ export function Campo({
         {opcional && <span className="font-normal text-muted-foreground"> (opcional)</span>}
       </Label>
       {children(id)}
-      {dica && <p className="mt-1 text-xs text-muted-foreground text-pretty">{dica}</p>}
+      {erro ? (
+        <p role="alert" className="mt-1 text-xs text-danger text-pretty">
+          {erro}
+        </p>
+      ) : (
+        dica && <p className="mt-1 text-xs text-muted-foreground text-pretty">{dica}</p>
+      )}
     </div>
   )
 }

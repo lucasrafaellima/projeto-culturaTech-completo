@@ -71,6 +71,7 @@ export type CadastroApi =
       rg: string
       telefone: string
       email: string
+      dataNascimento: string // "" em cadastros migrados
       endereco: Endereco
       dataCadastro: string
       consentimentoLgpd: string
@@ -102,6 +103,7 @@ export function cadastroNaApi(d: DadosSocio) {
       rg: d.rg,
       telefone: d.telefone,
       email: d.email,
+      dataNascimento: d.dataNascimento,
       endereco: d.endereco,
       senha: d.senha ?? "",
       consentimentoLgpd: d.consentimentoLgpd,
@@ -266,6 +268,7 @@ export const salvarSocioNaApi = (token: string, d: DadosSocio, id?: string) =>
     rg: d.rg,
     telefone: d.telefone,
     email: d.email,
+    dataNascimento: d.dataNascimento,
     endereco: d.endereco,
     fotoId: d.fotoId ?? null,
     ...(id ? {} : { senha: d.senha ?? "" }),

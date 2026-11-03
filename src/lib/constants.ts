@@ -9,6 +9,7 @@ import type {
   StatusReserva,
   TipoNotificacao,
   TipoMovimentacao,
+  EspacoMesa,
 } from "./types"
 
 // ============================================================
@@ -23,6 +24,9 @@ export const PRAZO_RESERVA_DIAS = 3 // reserva aguarda retirada por 3 dias
 export const DIAS_LEMBRETE = 3 // RF05: lembrete enviado a partir de 3 dias antes do vencimento
 export const MAX_DOACOES_PESSOA_FISICA = 1 // RN26
 export const MIN_JUSTIFICATIVA = 20 // RN07 / RN24: texto mínimo de uma justificativa "fundamentada"
+export const IDADE_MINIMA_SOCIO = 12 // US29: conta própria (e empréstimos) a partir dos 12 anos
+export const IDADE_MAXIMA_KIDS = 11 // US29: Espaço Kids só para crianças de até 11 anos
+export const TOLERANCIA_USO_MINUTOS = 15 // US30: sem confirmação de uso nesse prazo, a vaga é liberada
 
 // Categorias restritas (RN04 / RNF09): apenas consulta local
 export const CATEGORIAS_RESTRITAS: Categoria[] = ["exemplar_unico", "raro", "cordel"]
@@ -105,6 +109,11 @@ export const horarioTurno: Record<Turno, string> = {
   manha: "08h às 12h",
   tarde: "13h às 17h",
   noite: "18h às 21h",
+}
+
+export const labelEspaco: Record<EspacoMesa, string> = {
+  estudo: "Mesas de estudo",
+  kids: "Espaço Kids",
 }
 
 export const labelMulta: Record<StatusMulta, string> = {

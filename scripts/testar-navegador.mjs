@@ -77,6 +77,12 @@ const preencher = async (rotulo, valor) => {
   if (!id) throw new Error("campo não encontrado: " + rotulo)
   return digitar(`[id="${id}"]`, valor)
 }
+// data local (AAAA-MM-DD) a n dias de hoje
+const dataISO = (n) => {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
 const slideAtual = () =>
   js(`document.querySelector('[aria-roledescription=slide][aria-hidden=false]')?.getAttribute('aria-label') ?? ''`)
 const opacidadeLerMais = () =>
@@ -150,6 +156,14 @@ await js("document.querySelector('form').requestSubmit()")
 await espera(300)
 ok((await texto()).includes("As senhas não conferem"), "cadastro confere a confirmação da senha")
 await preencher("Confirmar senha", "segredo1")
+await js("document.querySelector('form').requestSubmit()")
+await espera(300)
+ok((await texto()).includes("Informe a data de nascimento"), "cadastro exige a data de nascimento (US29)")
+await preencher("Data de nascimento", dataISO(-11 * 365))
+await js("document.querySelector('form').requestSubmit()")
+await espera(300)
+ok((await texto()).includes("a partir dos 12 anos"), "cadastro de menor de 12 anos recusado (US29)")
+await preencher("Data de nascimento", "1994-06-12")
 await js("document.querySelector('form').requestSubmit()")
 await espera(600)
 ok((await toast()).includes("Conta criada") && (await texto()).includes("Carla"), "conta criada e usuário já entra no sistema")
@@ -233,6 +247,35 @@ await espera(300)
 t = await texto()
 ok(t.includes("Manhã") && t.includes("Tarde") && t.includes("Noite"), "grade de mesas por turno (RN10)")
 await foto("07-mesas")
+
+// Espaço Kids (US29): agendamento para uma criança sem cadastro, ligada à sócia
+await clicar("Espaço Kids")
+await espera(300)
+await preencher("Data", dataISO(2))
+await espera(300)
+t = await texto()
+ok(t.includes("Dados da criança") && t.includes("Mesa Kids 1"), "aba Espaço Kids com as mesas Kids e os dados da criança")
+const agendarKids = () =>
+  js(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.innerText.trim() === 'Agendar'); b?.click(); return !!b })()`)
+await agendarKids()
+await espera(300)
+ok((await js("document.querySelectorAll('[aria-invalid=true]').length")) === 1 && (await texto()).includes("nome completo da criança"), "criança sem nome: campo apontado")
+await preencher("Nome completo da criança", "Davi Souza Lima")
+await preencher("CPF da criança", "123.456.789-00")
+await agendarKids()
+await espera(300)
+ok((await texto()).includes("CPF da criança inválido"), "CPF inválido da criança recusado e indicado no campo")
+await preencher("CPF da criança", "715.304.928-23")
+await preencher("Data de nascimento", dataISO(-13 * 365))
+await agendarKids()
+await espera(300)
+ok((await texto()).includes("própria conta de sócio-leitor"), "criança com 12 anos ou mais recusada no Espaço Kids")
+await preencher("Data de nascimento", dataISO(-7 * 365))
+await agendarKids()
+await espera(400)
+t = await texto()
+ok((await toast()).includes("agendada para Davi") && t.includes("Criança: Davi Souza Lima") && t.includes("Responsável: você"), "Espaço Kids agendado e criança vinculada à responsável")
+await foto("07b-espaco-kids")
 
 await clicar("Sair")
 await espera(400)

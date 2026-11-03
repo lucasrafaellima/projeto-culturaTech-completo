@@ -256,11 +256,15 @@ export function MinhaAreaPage() {
               {meusAgendamentos.map((a) => (
                 <div key={a.id} className="flex items-center justify-between gap-2 p-5">
                   <div>
-                    <p className="font-medium">{mesas.find((m) => m.id === a.mesaId)?.nome}</p>
+                    <p className="font-medium">
+                      {mesas.find((m) => m.id === a.mesaId)?.nome}
+                      {a.crianca && ` · para ${a.crianca.nome}`}
+                    </p>
                     <p className="text-sm text-muted-foreground">
                       {formatDate(a.data)} · {labelTurno[a.turno]} ({horarioTurno[a.turno]})
                     </p>
                   </div>
+                  {a.crianca && <Badge className="bg-accent/15 text-accent">Espaço Kids</Badge>}
                   {a.origem === "fila" && <Badge className="bg-success/15 text-success">Veio da fila</Badge>}
                 </div>
               ))}

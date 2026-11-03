@@ -64,6 +64,8 @@ CREATE TABLE socio_leitor (
     rg                  VARCHAR(20),
     telefone            VARCHAR(20),
     email               VARCHAR(254),
+    -- US29: conta própria a partir dos 12 anos (validado pela API); nula em cadastros migrados
+    data_nascimento     DATE,
     foto_arquivo_id     UUID REFERENCES arquivo (id) ON DELETE SET NULL,
     endereco_rua        VARCHAR(150),
     endereco_numero     VARCHAR(10),

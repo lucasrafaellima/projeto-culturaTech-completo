@@ -84,6 +84,7 @@ const novo = {
   rg: "9999999",
   telefone: "(82) 99999-0000",
   email,
+  dataNascimento: "1990-05-18",
   endereco: { rua: "Rua de Teste", numero: "1", bairro: "Centro", cep: "57300-000" },
   senha: "senha-teste",
   consentimentoLgpd: true,
@@ -91,6 +92,7 @@ const novo = {
 
 const criado = await cadastrar(novo)
 conferir("cadastro válido retorna 201 com token", criado.status === 201 && typeof criado.corpo.token === "string", criado.corpo)
+conferir("cadastro devolve a data de nascimento", criado.corpo.cadastro?.dataNascimento === "1990-05-18", criado.corpo.cadastro)
 conferir("novo sócio vem com perfil socio e sem pendências", criado.corpo.usuario?.perfil === "socio" && criado.corpo.usuario?.pendencias === false)
 conferir("cadastro devolve os dados gravados (CPF só com dígitos)", criado.corpo.cadastro?.cpf === cpf && criado.corpo.cadastro?.endereco?.cep === "57300000", criado.corpo.cadastro)
 
@@ -115,6 +117,25 @@ conferir("sem consentimento LGPD retorna 400", semConsentimento.status === 400 &
 
 const senhaCurta = await cadastrar({ ...novo, cpf: cpfAleatorio(), senha: "123" })
 conferir("senha curta retorna 400", senhaCurta.status === 400, senhaCurta.corpo)
+
+// US29: conta própria só a partir dos 12 anos
+const dataComIdade = (anos: number, diasAMais = 0) => {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - anos)
+  d.setDate(d.getDate() + diasAMais)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+const semNascimento = await cadastrar({ ...novo, cpf: cpfAleatorio(), dataNascimento: "" })
+conferir("sem data de nascimento retorna 400", semNascimento.status === 400 && /nascimento/.test(semNascimento.corpo.mensagem), semNascimento.corpo)
+const onzeAnos = await cadastrar({ ...novo, cpf: cpfAleatorio(), dataNascimento: dataComIdade(12, 1) })
+conferir("menor de 12 anos (faz 12 amanhã) retorna 400", onzeAnos.status === 400 && /12 anos/.test(onzeAnos.corpo.mensagem), onzeAnos.corpo)
+const cpfDoze = cpfAleatorio()
+const dozeAnos = await cadastrar({ ...novo, cpf: cpfDoze, email: `doze.${cpfDoze}@example.com`, dataNascimento: dataComIdade(12) })
+conferir("quem faz 12 anos hoje pode criar a conta (201)", dozeAnos.status === 201, dozeAnos.corpo)
+const futura = await cadastrar({ ...novo, cpf: cpfAleatorio(), dataNascimento: dataComIdade(0, 2) })
+conferir("data de nascimento futura retorna 400", futura.status === 400, futura.corpo)
+const dataInexistente = await cadastrar({ ...novo, cpf: cpfAleatorio(), dataNascimento: "1990-02-31" })
+conferir("data inexistente (31/02) retorna 400", dataInexistente.status === 400, dataInexistente.corpo)
 
 console.log(falhas ? `\n${falhas} verificação(ões) falharam.` : "\nTodas as verificações passaram.")
 process.exit(falhas ? 1 : 0)

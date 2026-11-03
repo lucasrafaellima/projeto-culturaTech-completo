@@ -81,6 +81,7 @@ function dadosSocio(nome: string, cpf: string) {
     rg: "",
     telefone: "82999990000",
     email: `${nome.split(" ")[0].toLowerCase()}.${sufixo.toLowerCase()}@example.com`,
+    dataNascimento: "1985-08-20",
     endereco: { rua: "Rua do Teste", numero: "1", bairro: "Centro", cep: "57300000" },
     senha: "senha-teste",
     consentimentoLgpd: true,

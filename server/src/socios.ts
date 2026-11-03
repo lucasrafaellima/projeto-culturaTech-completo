@@ -18,6 +18,7 @@ export async function listarSocios(c: Consulta, filtro = "TRUE", valores: unknow
   const { rows } = await c.query(
     `SELECT s.id, s.nome, s.cpf, s.rg, s.telefone, s.email, s.foto_arquivo_id,
             s.endereco_rua, s.endereco_numero, s.endereco_bairro, s.endereco_cep, s.ativo, s.anonimizado,
+            to_char(s.data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
             to_char(s.data_cadastro, 'YYYY-MM-DD') AS data_cadastro,
             to_char(s.consentimento_lgpd, 'YYYY-MM-DD') AS consentimento_lgpd
        FROM socio_leitor s WHERE ${filtro}
@@ -31,6 +32,7 @@ export async function listarSocios(c: Consulta, filtro = "TRUE", valores: unknow
     rg: s.rg ?? "",
     telefone: s.telefone ?? "",
     email: s.email ?? "",
+    ...(s.data_nascimento ? { dataNascimento: s.data_nascimento } : {}),
     ...(s.foto_arquivo_id ? { fotoId: s.foto_arquivo_id } : {}),
     endereco: {
       rua: s.endereco_rua ?? "",
@@ -97,10 +99,10 @@ rotasSocios.post("/socios", async (req, res) => {
   const socio = await emTransacao(async (c) => {
     await conferirFoto(c, fotoId, null)
     const { rows } = await c.query<{ id: string }>(
-      `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, foto_arquivo_id, endereco_rua, endereco_numero,
-                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE) RETURNING id`,
-      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep, senhaHash],
+      `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, data_nascimento, foto_arquivo_id, endereco_rua,
+                                 endereco_numero, endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_DATE) RETURNING id`,
+      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, d.dataNascimento, fotoId, d.rua, d.numero, d.bairro, d.cep, senhaHash],
     )
     return umSocio(c, rows[0].id)
   })
@@ -126,10 +128,10 @@ rotasSocios.put("/socios/:id", async (req, res) => {
     await c.query(
       `UPDATE socio_leitor
           SET nome = $2, cpf = $3, rg = $4, telefone = $5, email = $6, foto_arquivo_id = $7, endereco_rua = $8,
-              endereco_numero = $9, endereco_bairro = $10, endereco_cep = $11,
+              endereco_numero = $9, endereco_bairro = $10, endereco_cep = $11, data_nascimento = $12,
               consentimento_lgpd = COALESCE(consentimento_lgpd, CURRENT_DATE)
         WHERE id = $1`,
-      [id, d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep],
+      [id, d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep, d.dataNascimento],
     )
     const fotoApagada = atual.foto_arquivo_id !== fotoId ? await apagarFotoAntiga(c, atual.foto_arquivo_id) : null
     return { fotoApagada, socio: await umSocio(c, id) }
@@ -191,7 +193,7 @@ rotasSocios.post("/socios/:id/anonimizar", async (req, res) => {
     await c.query(
       `UPDATE socio_leitor
           SET nome = 'Titular anonimizado ' || upper(left(id::text, 4)), cpf = NULL, rg = NULL, telefone = NULL,
-              email = NULL, foto_arquivo_id = NULL, endereco_rua = NULL, endereco_numero = NULL,
+              email = NULL, data_nascimento = NULL, foto_arquivo_id = NULL, endereco_rua = NULL, endereco_numero = NULL,
               endereco_bairro = NULL, endereco_cep = NULL, senha_hash = NULL, ativo = FALSE, anonimizado = TRUE
         WHERE id = $1`,
       [id],
