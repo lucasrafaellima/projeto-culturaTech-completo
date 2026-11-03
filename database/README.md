@@ -9,9 +9,13 @@ Modelo relacional para **PostgreSQL 16** no **Amazon RDS**, derivado de `src/lib
 | `02_dados_exemplo.sql`        | Dados de demonstração com as mesmas contas e cenários do README do app                                  |
 | `03_ajuste_search_path.sql`   | Só para bancos criados antes de as funções fixarem o próprio `search_path`; rode uma vez                |
 | `04_localizacao_exemplar.sql` | Só para bancos criados antes da coluna `exemplar.localizacao`; rode uma vez (pode repetir sem problema) |
+| `05_indice_mural.sql`         | Só para bancos criados antes do índice `ix_publicacao_tipo_data` (filtro do mural); pode repetir         |
 
 > Banco novo: rode apenas `01_schema.sql` (e, se quiser os dados de demonstração, `02_dados_exemplo.sql`). Os arquivos
-> `03` e `04` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
+> `03` a `05` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
+>
+> Os PDFs de exemplo do repositório não cabem num `.sql` (os bytes ficam no S3): depois do `02`, com a API no ar, rode
+> `npm run dados-pdf` em `server/`.
 
 ## Diagrama entidade-relacionamento
 

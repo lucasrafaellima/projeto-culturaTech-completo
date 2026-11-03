@@ -38,6 +38,12 @@ export const EXTENSOES_IMAGEM = [".webp", ".jpg", ".jpeg", ".png"]
 export const MIMES_IMAGEM = ["image/webp", "image/jpeg", "image/png"]
 export const ACCEPT_IMAGEM = ".webp,.jpg,.jpeg,.png,image/webp,image/jpeg,image/png"
 
+// Limites de tamanho do arquivo escolhido (iteração 3, T12). O servidor confere o
+// conteúdo já comprimido: PDF até 15 MB, imagem até 5 MB (server/src/arquivos.ts).
+// A imagem escolhida pode ser maior, porque é reduzida para WEBP antes do envio.
+export const LIMITE_PDF_MB = 15
+export const LIMITE_IMAGEM_ORIGINAL_MB = 25
+
 export const LETRAS_SECAO = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("") // RN22
 
 export const TODOS_STATUS: StatusExemplar[] = [

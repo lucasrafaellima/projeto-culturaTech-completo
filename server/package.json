@@ -15,7 +15,8 @@
     "testar-circulacao": "node scripts/testar-circulacao.ts",
     "testar-repositorio": "node scripts/testar-repositorio.ts",
     "testar-mural": "node scripts/testar-mural.ts",
-    "testar-s3": "node scripts/testar-s3.ts"
+    "testar-s3": "node scripts/testar-s3.ts",
+    "dados-pdf": "node scripts/dados-pdf.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

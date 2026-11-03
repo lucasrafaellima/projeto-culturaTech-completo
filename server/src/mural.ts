@@ -15,17 +15,64 @@ const MAX_IMAGENS = 10
 
 type Consulta = pg.PoolClient | pg.Pool
 
+// Ordenações da consulta pública: "destaque" (padrão do mural) traz os eventos
+// futuros primeiro, do mais próximo ao mais distante, e depois o restante do
+// mais recente ao mais antigo — a mesma ordem do carrossel no front-end
+const ORDENS: Record<string, string> = {
+  destaque: `(p.tipo = 'evento' AND p.data >= CURRENT_DATE) DESC,
+             CASE WHEN p.tipo = 'evento' AND p.data >= CURRENT_DATE THEN p.data END ASC,
+             p.data DESC, p.titulo`,
+  recentes: "p.data DESC, p.titulo",
+  antigas: "p.data ASC, p.titulo",
+}
+
 // Formato de Publicacao (src/lib/types.ts)
-async function listarPublicacoes(c: Consulta, filtro = "TRUE", valores: unknown[] = []) {
+async function listarPublicacoes(c: Consulta, filtro = "TRUE", valores: unknown[] = [], ordem = ORDENS.recentes) {
   const { rows } = await c.query(
     `SELECT p.id, p.tipo, p.titulo, p.descricao, to_char(p.data, 'YYYY-MM-DD') AS data,
             COALESCE((SELECT array_agg(i.arquivo_id ORDER BY i.ordem) FROM publicacao_imagem i
                        WHERE i.publicacao_id = p.id), '{}') AS "imagemIds"
        FROM publicacao p WHERE ${filtro}
-      ORDER BY p.data DESC, p.titulo`,
+      ORDER BY ${ordem}`,
     valores,
   )
   return rows
+}
+
+const DATA = /^\d{4}-\d{2}-\d{2}$/
+const dataValida = (d: string) => DATA.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`))
+
+// mesmo critério de normalizar (src/lib/utils.ts)
+const semAcento = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+
+// Filtros da consulta pública (?tipo=&busca=&de=&ate=&ordem=), montados com parâmetros
+function filtrosDaConsulta(q: Record<string, unknown>) {
+  const condicoes: string[] = []
+  const valores: unknown[] = []
+  const tipo = texto(q.tipo)
+  if (tipo && tipo !== "todas") {
+    if (!TIPOS.includes(tipo)) throw new ErroRegra(400, "Tipo de publicação inválido.")
+    valores.push(tipo)
+    condicoes.push(`p.tipo = $${valores.length}`)
+  }
+  const busca = texto(q.busca).slice(0, 100)
+  if (busca) {
+    // acentos e maiúsculas ignorados, como na busca do front-end; % e _ valem como texto
+    valores.push(`%${semAcento(busca).replace(/[%_\\]/g, "\\$&")}%`)
+    condicoes.push(
+      `translate(lower(p.titulo || ' ' || p.descricao), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') LIKE $${valores.length}`,
+    )
+  }
+  for (const [campo, operador] of [["de", ">="], ["ate", "<="]] as const) {
+    const d = texto(q[campo])
+    if (!d) continue
+    if (!dataValida(d)) throw new ErroRegra(400, "Data do filtro inválida (use AAAA-MM-DD).")
+    valores.push(d)
+    condicoes.push(`p.data ${operador} $${valores.length}`)
+  }
+  const ordem = texto(q.ordem) || "destaque"
+  if (!ORDENS[ordem]) throw new ErroRegra(400, "Ordenação inválida (use destaque, recentes ou antigas).")
+  return { filtro: condicoes.join(" AND ") || "TRUE", valores, ordem: ORDENS[ordem] }
 }
 
 interface DadosPublicacao {
@@ -52,7 +99,7 @@ function validar(corpo: Record<string, unknown>): DadosPublicacao {
   // RF12: descrição e/ou imagem
   if (!descricao && imagemIds.length === 0) throw new ErroRegra(400, "Informe uma descrição e/ou anexe imagem(ns).")
   const data = texto(corpo.data)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T00:00:00Z`))) {
+  if (!dataValida(data)) {
     throw new ErroRegra(400, "Informe a data da publicação ou do evento.")
   }
   return { tipo, titulo, descricao, data, imagemIds }
@@ -94,8 +141,11 @@ async function gravarImagens(c: pg.PoolClient, publicacaoId: string, ids: string
 export const rotasMural = Router()
 
 // GET /api/mural  (público, RF12: o mural é visto sem login)
-rotasMural.get("/mural", async (_req, res) => {
-  res.json({ ok: true, publicacoes: await listarPublicacoes(pool) })
+//   ?tipo=noticia|evento|novidade  ?busca=texto  ?de=AAAA-MM-DD  ?ate=AAAA-MM-DD
+//   ?ordem=destaque (padrão) | recentes | antigas
+rotasMural.get("/mural", async (req, res) => {
+  const { filtro, valores, ordem } = filtrosDaConsulta(req.query)
+  res.json({ ok: true, publicacoes: await listarPublicacoes(pool, filtro, valores, ordem) })
 })
 
 rotasMural.use("/publicacoes", exigirAdmin)

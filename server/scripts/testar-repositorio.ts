@@ -72,6 +72,14 @@ conferir("compressão incompatível: 400", compErrada.status === 400, compErrada
 const vazio = await enviar(Buffer.alloc(0), "application/pdf", admin)
 conferir("arquivo vazio: 400", vazio.status === 400, vazio.corpo)
 
+// ---------- limites de tamanho (T12) ----------
+const pngGrande = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(5 * 1024 * 1024)])
+const imgGrande = await enviar(pngGrande, "image/png", admin, { "X-Destino": "documentos" })
+conferir("imagem acima de 5 MB: 413", imgGrande.status === 413 && /5 MB/.test(imgGrande.corpo.mensagem), imgGrande.corpo)
+const pdfGrande = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(15 * 1024 * 1024)])
+const grande = await enviar(pdfGrande, "application/pdf", admin)
+conferir("PDF acima de 15 MB: 413 com mensagem", grande.status === 413 && /15 MB/.test(grande.corpo.mensagem), grande.corpo)
+
 const upPdf = await enviar(pdf, "application/pdf", admin)
 conferir(
   "upload de PDF: 201 com nome e tamanho",

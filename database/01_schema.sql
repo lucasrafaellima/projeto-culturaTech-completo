@@ -374,6 +374,7 @@ CREATE TABLE publicacao (
     admin_id   UUID REFERENCES administrador (id)
 );
 CREATE INDEX ix_publicacao_data ON publicacao (data DESC);
+CREATE INDEX ix_publicacao_tipo_data ON publicacao (tipo, data DESC); -- filtro por tipo do mural público
 
 CREATE TABLE publicacao_imagem (
     publicacao_id  UUID NOT NULL REFERENCES publicacao (id) ON DELETE CASCADE,
