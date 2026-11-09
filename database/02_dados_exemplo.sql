@@ -6,6 +6,7 @@
 --   João Pedro     (153.509.460-56) regular, reserva + empréstimo vencendo em 2 dias
 --   Ana Beatriz    (714.602.380-01) multa com justificativa em análise
 --   Pedro Henrique (385.613.920-61) sem e-mail: falha de notificação
+--   Lucas Ferreira (861.904.237-87) 14 anos: não agenda para criança (US28)
 -- Senha dos sócios: 123456. Datas relativas ao dia da carga.
 -- Execute depois de 01_schema.sql.
 -- ============================================================
@@ -22,19 +23,24 @@ INSERT INTO administrador (id, nome, matricula, usuario, senha_hash) VALUES
      public.crypt('admin123', public.gen_salt('bf')));
 
 INSERT INTO socio_leitor (id, nome, cpf, rg, telefone, email, endereco_rua, endereco_numero,
-                          endereco_bairro, endereco_cep, senha_hash, data_cadastro, consentimento_lgpd) VALUES
+                          endereco_bairro, endereco_cep, senha_hash, data_cadastro, consentimento_lgpd,
+                          data_nascimento) VALUES
     ('50000000-0000-0000-0000-000000000001', 'Maria Joana da Silva', '52998224725', '1234567', '82999990001',
      'maria.joana@example.com', 'Rua São Francisco', '120', 'Centro', '57300000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 200, CURRENT_DATE - 200),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 200, CURRENT_DATE - 200, '1985-04-12'),
     ('50000000-0000-0000-0000-000000000002', 'João Pedro Santos', '15350946056', '2345678', '82999990002',
      'joao.pedro@example.com', 'Avenida Rio Branco', '45', 'Baixa Grande', '57307000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 150, CURRENT_DATE - 150),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 150, CURRENT_DATE - 150, '1992-09-03'),
     ('50000000-0000-0000-0000-000000000003', 'Ana Beatriz Lima', '71460238001', '3456789', '82999990003',
      'ana.beatriz@example.com', 'Rua Expedicionários', '300', 'Eldorado', '57306000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 100, CURRENT_DATE - 100),
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 100, CURRENT_DATE - 100, '1998-01-25'),
     ('50000000-0000-0000-0000-000000000004', 'Pedro Henrique Costa', '38561392061', '4567890', '82999990004',
      NULL, 'Rua Domingos Correia', '78', 'Primavera', '57304000',
-     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 60, CURRENT_DATE - 60);
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 60, CURRENT_DATE - 60, '2001-11-30'),
+    ('50000000-0000-0000-0000-000000000005', 'Lucas Ferreira Lima', '86190423787', NULL, '82999990005',
+     'lucas.ferreira@example.com', 'Rua Santa Luzia', '15', 'Centro', '57300000',
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 30, CURRENT_DATE - 30,
+     (CURRENT_DATE - INTERVAL '14 years')::date);
 
 -- Acervo -----------------------------------------------------
 INSERT INTO autor (id, nome) VALUES
@@ -72,7 +78,10 @@ INSERT INTO exemplar (id, livro_id, tombamento, status, data_entrada) VALUES
     ('e0000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000003', 'BM-000006', 'ocioso', '2010-01-15'),
     ('e0000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000004', 'BM-000007', 'disponivel', '2022-02-14'),
     ('e0000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000004', 'BM-000008', 'disponivel', '2022-02-14'),
-    ('e0000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000005', 'BM-000009', 'disponivel', '2005-06-30');
+    ('e0000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000005', 'BM-000009', 'disponivel', '2005-06-30'),
+    -- um entrou por aquisição e outro saiu por doação (ver "Parcerias")
+    ('e0000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000004', 'BM-000010', 'disponivel', CURRENT_DATE - 60),
+    ('e0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000005', 'BM-000011', 'disponivel', '2018-07-09');
 
 -- Circulação -------------------------------------------------
 -- Ordem importa: os triggers validam RN01/RN08 no momento do INSERT.
@@ -134,6 +143,9 @@ INSERT INTO mesa_estudo (id, nome, local) VALUES
     ('d0000000-0000-0000-0000-000000000001', 'Mesa 1', 'Salão de leitura'),
     ('d0000000-0000-0000-0000-000000000002', 'Mesa 2', 'Salão de leitura'),
     ('d0000000-0000-0000-0000-000000000003', 'Mesa 3', 'Sala de estudos');
+INSERT INTO mesa_estudo (id, nome, local, espaco) VALUES
+    ('d0000000-0000-0000-0000-000000000004', 'Mesa Infantil 1', 'Espaço infantil', 'infantil'),
+    ('d0000000-0000-0000-0000-000000000005', 'Mesa Infantil 2', 'Espaço infantil', 'infantil');
 
 INSERT INTO agendamento (mesa_id, socio_id, data, turno) VALUES
     ('d0000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', CURRENT_DATE + 1, 'manha'),
@@ -143,12 +155,38 @@ INSERT INTO agendamento (mesa_id, socio_id, data, turno) VALUES
 INSERT INTO fila_espera (socio_id, data, turno) VALUES
     ('50000000-0000-0000-0000-000000000001', CURRENT_DATE + 1, 'manha');
 
+-- Espaço infantil lotado à tarde, com uma criança na fila (US28)
+INSERT INTO agendamento (mesa_id, socio_id, data, turno, crianca_nome, crianca_idade) VALUES
+    ('d0000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000002', CURRENT_DATE + 1, 'tarde', 'Clara Santos', 7),
+    ('d0000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000003', CURRENT_DATE + 1, 'tarde', 'Miguel Lima', 9);
+
+INSERT INTO fila_espera (socio_id, data, turno, crianca_nome, crianca_idade) VALUES
+    ('50000000-0000-0000-0000-000000000004', CURRENT_DATE + 1, 'tarde', 'Helena Costa', 5);
+
 -- Parcerias --------------------------------------------------
 INSERT INTO instituicao (id, tipo, nome, documento, endereco, contato) VALUES
     ('90000000-0000-0000-0000-000000000001', 'instituicao', 'Escola Estadual Exemplo', '12345678000195',
      'Rua da Escola, 10 - Centro, Arapiraca/AL', 'secretaria@escola.example.com'),
     ('90000000-0000-0000-0000-000000000002', 'pessoa_fisica', 'Carlos Doador', '11144477735',
-     'Rua das Flores, 5 - Arapiraca/AL', '82988887777');
+     'Rua das Flores, 5 - Arapiraca/AL', '82988887777'),
+    ('90000000-0000-0000-0000-000000000003', 'instituicao', 'Instituto Cultural Exemplo', '11222333000181',
+     'Avenida Deputada Ceci Cunha, 200 - Arapiraca/AL', 'contato@instituto.example.com');
+
+-- Aquisição: exemplar recebido do instituto
+INSERT INTO movimentacao (id, tipo, livro_id, receptor_id, data, observacao) VALUES
+    ('91000000-0000-0000-0000-000000000001', 'aquisicao', 'b0000000-0000-0000-0000-000000000004',
+     '90000000-0000-0000-0000-000000000003', CURRENT_DATE - 60, 'Doação recebida do instituto.');
+INSERT INTO movimentacao_exemplar (movimentacao_id, exemplar_id) VALUES
+    ('91000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000010');
+
+-- Doação: exemplar repassado à escola, que sai do acervo
+INSERT INTO movimentacao (id, tipo, livro_id, receptor_id, data, observacao) VALUES
+    ('91000000-0000-0000-0000-000000000002', 'doacao', 'b0000000-0000-0000-0000-000000000005',
+     '90000000-0000-0000-0000-000000000001', CURRENT_DATE - 20, 'Reforço da biblioteca da escola.');
+INSERT INTO movimentacao_exemplar (movimentacao_id, exemplar_id) VALUES
+    ('91000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000011');
+UPDATE exemplar SET baixa_data = CURRENT_DATE - 20, baixa_motivo = 'doacao'
+ WHERE id = 'e0000000-0000-0000-0000-000000000011';
 
 -- Mural ------------------------------------------------------
 INSERT INTO publicacao (tipo, titulo, descricao, data, admin_id) VALUES

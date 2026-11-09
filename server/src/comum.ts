@@ -7,9 +7,11 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // Erro de regra de negócio: vira { ok: false, mensagem } com o status informado
 export class ErroRegra extends Error {
   status: number
-  constructor(status: number, mensagem: string) {
+  extras?: Record<string, unknown>
+  constructor(status: number, mensagem: string, extras?: Record<string, unknown>) {
     super(mensagem)
     this.status = status
+    this.extras = extras
   }
 }
 
@@ -47,7 +49,7 @@ export async function emTransacao<T>(fn: (c: pg.PoolClient) => Promise<T>): Prom
 // Os demais erros seguem para o tratador geral (500).
 export function tratarErroDeRegra(erro: unknown, _req: Request, res: Response, next: NextFunction) {
   if (erro instanceof ErroRegra) {
-    res.status(erro.status).json({ ok: false, mensagem: erro.message })
+    res.status(erro.status).json({ ok: false, mensagem: erro.message, ...erro.extras })
     return
   }
   if (erro instanceof pg.DatabaseError && erro.code === "P0001") {

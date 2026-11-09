@@ -74,6 +74,8 @@ CREATE TABLE socio_leitor (
     data_cadastro       DATE NOT NULL DEFAULT CURRENT_DATE,
     consentimento_lgpd  DATE, -- RNF06: nulo = pendente (cadastro migrado)
     anonimizado         BOOLEAN NOT NULL DEFAULT FALSE,
+    -- US28: confere a idade de quem agenda para uma criança; nula em cadastros antigos e após a anonimização
+    data_nascimento     DATE CHECK (data_nascimento >= DATE '1900-01-01'),
     CONSTRAINT ck_socio_identificado CHECK (anonimizado OR cpf IS NOT NULL)
 );
 CREATE UNIQUE INDEX ux_socio_cpf ON socio_leitor (cpf) WHERE cpf IS NOT NULL;
@@ -272,7 +274,9 @@ CREATE TABLE mesa_estudo (
     id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nome   VARCHAR(60) NOT NULL UNIQUE,
     local  VARCHAR(120) NOT NULL,
-    ativa  BOOLEAN NOT NULL DEFAULT TRUE
+    ativa  BOOLEAN NOT NULL DEFAULT TRUE,
+    -- US28: mesa de estudo ou do espaço infantil
+    espaco VARCHAR(8) NOT NULL DEFAULT 'estudo' CHECK (espaco IN ('estudo', 'infantil'))
 );
 
 CREATE TABLE agendamento (
@@ -283,12 +287,22 @@ CREATE TABLE agendamento (
     turno      VARCHAR(5) NOT NULL CHECK (turno IN ('manha', 'tarde', 'noite')),
     status     VARCHAR(10) NOT NULL DEFAULT 'confirmado' CHECK (status IN ('confirmado', 'cancelado')),
     origem     VARCHAR(6) NOT NULL DEFAULT 'direto' CHECK (origem IN ('direto', 'fila')),
-    criado_em  TIMESTAMPTZ NOT NULL DEFAULT now()
+    criado_em  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- US28: preenchido quando o agendamento é para uma criança sob responsabilidade do sócio.
+    -- Na anonimização o nome vira um código e a idade fica nula.
+    crianca_nome   VARCHAR(150),
+    crianca_idade  SMALLINT,
+    CONSTRAINT ck_agendamento_crianca CHECK (
+        crianca_idade IS NULL OR (crianca_nome IS NOT NULL AND crianca_idade BETWEEN 0 AND 11))
 );
 -- uma mesa por turno
 CREATE UNIQUE INDEX ux_agendamento_mesa_turno ON agendamento (mesa_id, data, turno) WHERE status = 'confirmado';
--- RN05: um agendamento confirmado por sócio por dia
-CREATE UNIQUE INDEX ux_agendamento_socio_dia ON agendamento (socio_id, data) WHERE status = 'confirmado';
+-- RN05: um agendamento próprio confirmado por sócio por dia; o de criança não entra neste limite
+CREATE UNIQUE INDEX ux_agendamento_socio_dia ON agendamento (socio_id, data)
+    WHERE status = 'confirmado' AND crianca_nome IS NULL;
+-- US28: um agendamento confirmado por criança por dia
+CREATE UNIQUE INDEX ux_agendamento_crianca_dia ON agendamento (socio_id, data, lower(crianca_nome))
+    WHERE status = 'confirmado' AND crianca_nome IS NOT NULL;
 
 -- Fila de espera (RF11): a ordem é dada por criado_em
 CREATE TABLE fila_espera (
@@ -300,9 +314,15 @@ CREATE TABLE fila_espera (
     status          VARCHAR(12) NOT NULL DEFAULT 'aguardando'
                     CHECK (status IN ('aguardando', 'contemplado', 'desistiu', 'expirada')),
     agendamento_id  UUID UNIQUE REFERENCES agendamento (id),
-    CONSTRAINT ck_fila_contemplado CHECK ((status = 'contemplado') = (agendamento_id IS NOT NULL))
+    -- US28: com criança, a entrada é da fila do espaço infantil
+    crianca_nome    VARCHAR(150),
+    crianca_idade   SMALLINT,
+    CONSTRAINT ck_fila_contemplado CHECK ((status = 'contemplado') = (agendamento_id IS NOT NULL)),
+    CONSTRAINT ck_fila_crianca CHECK (
+        crianca_idade IS NULL OR (crianca_nome IS NOT NULL AND crianca_idade BETWEEN 0 AND 11))
 );
-CREATE UNIQUE INDEX ux_fila_socio_turno ON fila_espera (socio_id, data, turno) WHERE status = 'aguardando';
+CREATE UNIQUE INDEX ux_fila_socio_turno ON fila_espera (socio_id, data, turno, lower(COALESCE(crianca_nome, '')))
+    WHERE status = 'aguardando';
 CREATE INDEX ix_fila_ordem ON fila_espera (data, turno, criado_em) WHERE status = 'aguardando';
 
 -- ------------------------------------------------------------

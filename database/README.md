@@ -9,11 +9,19 @@ Modelo relacional para **PostgreSQL 16** no **Amazon RDS**, derivado de `src/lib
 | `02_dados_exemplo.sql`        | Dados de demonstração com as mesmas contas e cenários do README do app                                  |
 | `03_ajuste_search_path.sql`   | Só para bancos criados antes de as funções fixarem o próprio `search_path`; rode uma vez                |
 | `04_localizacao_exemplar.sql` | Só para bancos criados antes da coluna `exemplar.localizacao`; rode uma vez (pode repetir sem problema) |
+| `05_mesas_espaco_infantil.sql` | Só para bancos criados antes do espaço infantil: colunas, índices e dados fictícios de mesas e instituições (pode repetir sem problema) |
+| `modelo_dados.png`            | Diagrama com todas as tabelas, colunas, tipos e chaves, gerado a partir de `01_schema.sql`               |
 
 > Banco novo: rode apenas `01_schema.sql` (e, se quiser os dados de demonstração, `02_dados_exemplo.sql`). Os arquivos
-> `03` e `04` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
+> `03`, `04` e `05` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
 
 ## Diagrama entidade-relacionamento
+
+O modelo completo, com as colunas, os tipos e as chaves de cada tabela, está em [`modelo_dados.png`](modelo_dados.png):
+
+![Modelo de dados do CulturaTech](modelo_dados.png)
+
+Resumo das relações:
 
 ```mermaid
 erDiagram
@@ -56,6 +64,13 @@ erDiagram
 - **Localização do exemplar**: `exemplar.localizacao` (`VARCHAR(80)`, opcional) diz onde a cópia fica, por exemplo
   "Estante 3, prateleira B". Quando é nula, vale a `secao` (A–Z) da obra. É informação interna da equipe: a visão
   `vw_consulta_publica` não a expõe.
+- **Espaço infantil (US28)**: `mesa_estudo.espaco` separa as mesas de `estudo` e `infantil`. Quando o agendamento ou a
+  entrada na fila é para uma criança, `crianca_nome` e `crianca_idade` ficam preenchidos, e a fila dessa entrada é a do
+  espaço infantil. A idade da criança é a informada no dia do agendamento (de 0 a 11 anos), não uma data de
+  nascimento, e não se atualiza depois. `socio_leitor.data_nascimento` confere a idade do responsável; é nula em
+  cadastros antigos, e a API recusa data futura (o banco só barra datas antes de 1900, porque um `CHECK` com
+  `CURRENT_DATE` mudaria de resultado com o tempo). Na anonimização, a data é apagada, o nome da criança vira um código e
+  a idade fica nula.
 - **Arquivos**: imagens e PDFs ficam no **Amazon S3**; a tabela `arquivo` guarda só metadados e a chave do objeto
   (`chave_storage`, no formato `<pasta>/<uuid>.<extensão>`, com as pastas `mural`, `acervo`, `documentos`, `socios` e
   `danos`). Banco relacional não é bom lugar para binários grandes.
@@ -71,7 +86,8 @@ erDiagram
 | ------------------------------------------------------ | --------------------------------------------------------------- |
 | RN01 — até 3 itens (empréstimos + reservas)            | trigger `tg_validar_emprestimo` / `tg_validar_reserva`          |
 | RN04 — raro, cordel e exemplar único não saem          | triggers acima                                                  |
-| RN05 — um agendamento por sócio por dia                | índice único parcial `ux_agendamento_socio_dia`                 |
+| RN05 — um agendamento próprio por sócio por dia        | índice único parcial `ux_agendamento_socio_dia`                 |
+| US28 — um agendamento por criança por dia              | índice único parcial `ux_agendamento_crianca_dia`               |
 | RN08 — multa em aberto ou atraso bloqueia              | função `fn_socio_bloqueado` nos triggers                        |
 | RN17 — até 3 renovações                                | `CHECK (renovacoes BETWEEN 0 AND 3)`                            |
 | RN22 — seção de A a Z                                  | `CHECK (secao ~ '^[A-Z]$')`                                     |
@@ -106,8 +122,9 @@ rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito c
    psql "host=<endpoint> port=5432 dbname=culturatech user=postgres sslmode=require" -f 02_dados_exemplo.sql
    ```
 
-   Se o banco já existia de antes, rode também os ajustes que faltarem: `03_ajuste_search_path.sql` e
-   `04_localizacao_exemplar.sql`.
+   Se o banco já existia de antes, rode também os ajustes que faltarem: `03_ajuste_search_path.sql`,
+   `04_localizacao_exemplar.sql` e `05_mesas_espaco_infantil.sql`. Sem o `05`, o login pela API é recusado, porque as
+   rotas de mesas não encontram as colunas novas.
 
 5. **Crie um usuário próprio para a aplicação** (não use o `postgres` no back-end):
 
@@ -133,5 +150,5 @@ rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito c
 
 O front-end (React) não acessa o banco diretamente — e não deve: navegador nunca conecta no RDS. Quem usa estas tabelas
 é a API em [`server/`](../server/README.md), que cobre login e cadastro, acervo, circulação, sócios, repositório
-digital e mural. Mesas de estudo, doações, notificações e backups ainda ficam no navegador; as tabelas correspondentes
-existem aqui, mas ainda não têm rotas na API.
+digital, mural, mesas de estudo e parcerias. Notificações e backups ainda ficam no navegador; a tabela `notificacao`
+existe aqui, mas ainda não tem rotas na API.

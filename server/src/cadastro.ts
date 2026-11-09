@@ -14,7 +14,7 @@ import {
 // mais os limites de tamanho das colunas de socio_leitor
 const somenteDigitos = (v: string) => v.replace(/\D/g, "")
 
-function cpfValido(valor: string): boolean {
+export function cpfValido(valor: string): boolean {
   const cpf = somenteDigitos(valor)
   if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false
   const calc = (base: string, pesoInicial: number) => {
@@ -46,9 +46,19 @@ export interface DadosCadastro {
   bairro: string
   cep: string
   senha: string
+  dataNascimento: string | null
 }
 
-// exigirSenha: false na edição feita pelo administrador (a senha não muda ali)
+function erroDaNascimento(data: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T00:00:00Z`))) {
+    return "Data de nascimento inválida."
+  }
+  if (data < "1900-01-01" || data > new Date().toISOString().slice(0, 10)) return "Data de nascimento inválida."
+  return null
+}
+
+// exigirSenha: false na edição feita pelo administrador (a senha não muda ali e a data de
+// nascimento pode seguir vazia em cadastros antigos)
 export function validarDadosSocio(
   corpo: Record<string, unknown>,
   { exigirSenha = true } = {},
@@ -66,6 +76,7 @@ export function validarDadosSocio(
     bairro: texto(endereco.bairro),
     cep: somenteDigitos(texto(endereco.cep)),
     senha,
+    dataNascimento: texto(corpo.dataNascimento) || null,
   }
 
   if (d.nome.split(" ").length < 2) return { erro: "Informe o nome completo." }
@@ -79,6 +90,12 @@ export function validarDadosSocio(
     return { erro: "Endereço muito longo (rua até 150, número até 10 e bairro até 80 caracteres)." }
   }
   if (d.cep.length !== 8) return { erro: "CEP inválido." }
+  if (d.dataNascimento) {
+    const erroNascimento = erroDaNascimento(d.dataNascimento)
+    if (erroNascimento) return { erro: erroNascimento }
+  } else if (exigirSenha) {
+    return { erro: "Informe a data de nascimento." }
+  }
   if (exigirSenha) {
     const erroSenha = validarSenha(senha)
     if (erroSenha) return { erro: erroSenha }
@@ -104,10 +121,10 @@ export async function cadastrarSocio(corpo: unknown): Promise<ResultadoCadastro>
   try {
     const { rows } = await pool.query<ColunasCadastroSocio & { id: string; nome: string }>(
       `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, endereco_rua, endereco_numero,
-                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE)
+                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd, data_nascimento)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE, $11)
        RETURNING id, nome, ${COLUNAS_CADASTRO_SOCIO}`,
-      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, d.rua, d.numero, d.bairro, d.cep, senhaHash],
+      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, d.rua, d.numero, d.bairro, d.cep, senhaHash, d.dataNascimento],
     )
     const usuario: UsuarioLogado = { id: rows[0].id, nome: rows[0].nome, perfil: "socio", pendencias: false }
     return {

@@ -240,7 +240,7 @@ async function gravarLivro(c: pg.PoolClient, d: DadosLivro, id?: string) {
 const salvarLivro = (d: DadosLivro, id?: string) => emTransacao((c) => gravarLivro(c, d, id))
 
 // Valida a lista de tombamentos (maiúsculas, sem vazios nem repetidos)
-function validarTombamentos(brutos: unknown): string[] {
+export function validarTombamentos(brutos: unknown): string[] {
   const lista = (Array.isArray(brutos) ? brutos : []).map((t) => texto(t).toUpperCase()).filter(Boolean)
   if (lista.length === 0) throw new ErroRegra(400, "Informe ao menos um código de tombamento.")
   if (lista.length > MAX_EXEMPLARES_POR_VEZ) {
@@ -252,7 +252,7 @@ function validarTombamentos(brutos: unknown): string[] {
 }
 
 // Insere os exemplares de uma obra dentro da transação do cliente
-async function gravarExemplares(c: pg.PoolClient, livroId: string, lista: string[], localizacao: string | null = null) {
+export async function gravarExemplares(c: pg.PoolClient, livroId: string, lista: string[], localizacao: string | null = null) {
   const livro = await c.query("SELECT 1 FROM livro WHERE id = $1", [livroId])
   if (livro.rowCount === 0) {
     throw new ErroRegra(404, "Não é possível cadastrar o exemplar: a obra não está cadastrada (RN16).")

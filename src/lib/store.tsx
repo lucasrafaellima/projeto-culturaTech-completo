@@ -12,12 +12,14 @@ import type {
   Administrador,
   Agendamento,
   ArquivoDigital,
+  CriancaAgendada,
   Desbaste,
   Emprestimo,
   EntradaFila,
   Estado,
   Exemplar,
   Instituicao,
+  MesaEstudo,
   Livro,
   Movimentacao,
   Multa,
@@ -67,8 +69,12 @@ import {
 import { validarAutores } from "./catalogacao"
 import { conferirSenha, hashSenha } from "./seguranca"
 import {
-  agendamentoNoDia,
+  anonimizarCriancasDoSocio,
   aplicarRotinas,
+  conflitoAgendamento,
+  erroDaCrianca,
+  erroDoResponsavel,
+  liberarMesasDoSocio,
   debitos as calcDebitos,
   emprestimoAtivoDoExemplar,
   emprestimosAtivos,
@@ -95,6 +101,7 @@ import {
   carregarSessao,
   criarBackup,
   lerBackup,
+  normalizarEstado,
   salvarEstado,
   salvarSessao,
   validarEstadoImportado,
@@ -108,7 +115,19 @@ import {
   alterarEmprestimoNaApi,
   alternarAtivoSocioNaApi,
   anexarDocumentoNaApi,
+  agendarNaApi,
   anonimizarSocioNaApi,
+  cancelarAgendamentoNaApi,
+  desistirDaFilaNaApi,
+  entrarNaFilaNaApi,
+  excluirInstituicaoNaApi,
+  mesasDaApi,
+  parceriasDaApi,
+  registrarAquisicaoNaApi,
+  registrarDoacaoNaApi,
+  salvarInstituicaoNaApi,
+  type EstadoMesasApi,
+  type ParceriasApi,
   cadastroNaApi,
   cancelarEmprestimoNaApi,
   cancelarReservaNaApi,
@@ -175,6 +194,7 @@ export interface DadosSocio {
   fotoId?: string
   senha?: string // obrigatória no cadastro
   consentimentoLgpd: boolean
+  dataNascimento?: string // obrigatória em cadastros novos
 }
 
 export interface DadosDano {
@@ -267,15 +287,21 @@ interface StoreContextType extends Estado {
   reenviarNotificacao: (id: string) => Resultado
 
   // mesas (RF10 / RF11)
-  agendarMesa: (socioId: string, data: string, turno: Turno, mesaId?: string) => ResultadoAgendamento
-  entrarNaFila: (socioId: string, data: string, turno: Turno) => Resultado
-  cancelarAgendamento: (id: string) => Resultado
-  desistirDaFila: (id: string) => Resultado
+  agendarMesa: (
+    socioId: string,
+    data: string,
+    turno: Turno,
+    mesaId?: string,
+    crianca?: CriancaAgendada,
+  ) => Promise<ResultadoAgendamento>
+  entrarNaFila: (socioId: string, data: string, turno: Turno, crianca?: CriancaAgendada) => Promise<Resultado>
+  cancelarAgendamento: (id: string) => Promise<Resultado>
+  desistirDaFila: (id: string) => Promise<Resultado>
 
   // parcerias (RF13 / RN25 / RN26)
-  salvarReceptor: (dados: DadosReceptor, id?: string) => Resultado
-  excluirReceptor: (id: string) => Resultado
-  registrarDoacao: (receptorId: string, exemplarIds: string[], observacao?: string) => Resultado
+  salvarReceptor: (dados: DadosReceptor, id?: string) => Promise<Resultado>
+  excluirReceptor: (id: string) => Promise<Resultado>
+  registrarDoacao: (receptorId: string, exemplarIds: string[], observacao?: string) => Promise<Resultado>
   registrarAquisicao: (receptorId: string, livroId: string, tombamentos: string[], observacao?: string) => Promise<Resultado>
 
   // repositório digital (RF08 / RF17)
@@ -331,6 +357,19 @@ const circulacaoParaEstado = (atual: Estado, c: CirculacaoApi): Estado => ({
   multas: c.multas,
   ocorrencias: c.ocorrencias,
   reservas: c.reservas,
+})
+
+const mesasParaEstado = (atual: Estado, m: EstadoMesasApi & { mesas: MesaEstudo[] }): Estado => ({
+  ...atual,
+  mesas: m.mesas,
+  agendamentos: m.agendamentos,
+  fila: m.fila,
+})
+
+const parceriasParaEstado = (atual: Estado, p: ParceriasApi): Estado => ({
+  ...atual,
+  instituicoes: p.instituicoes,
+  movimentacoes: p.movimentacoes,
 })
 
 const repositorioParaEstado = (atual: Estado, r: RepositorioApi): Estado => ({
@@ -389,24 +428,45 @@ async function carregarDadosDoPerfil(
     mensagem: r.tipo === "erro" ? r.mensagem : "Não foi possível carregar os dados do servidor. Tente novamente.",
   })
   if (perfil === "admin" && token) {
-    const [a, c, r] = await Promise.all([acervoDaApi(token), circulacaoDaApi(token), repositorioDaApi()])
+    const [a, c, r, me, pa] = await Promise.all([
+      acervoDaApi(token),
+      circulacaoDaApi(token),
+      repositorioDaApi(),
+      mesasDaApi(token),
+      parceriasDaApi(token),
+    ])
     if (a.tipo !== "ok") return falhou(a)
     if (c.tipo !== "ok") return falhou(c)
     if (r.tipo !== "ok") return falhou(r)
+    if (me.tipo !== "ok") return falhou(me)
+    if (pa.tipo !== "ok") return falhou(pa)
     return {
       ok: true,
-      aplicar: (e) => repositorioParaEstado(circulacaoParaEstado(acervoParaEstado(e, a.dados), c.dados), r.dados),
+      aplicar: (e) =>
+        parceriasParaEstado(
+          mesasParaEstado(repositorioParaEstado(circulacaoParaEstado(acervoParaEstado(e, a.dados), c.dados), r.dados), me.dados),
+          pa.dados,
+        ),
     }
   }
   if (perfil === "socio" && token) {
-    const [a, m, r] = await Promise.all([acervoPublicoDaApi(), minhaCirculacaoDaApi(token), repositorioDaApi()])
+    const [a, m, r, me] = await Promise.all([
+      acervoPublicoDaApi(),
+      minhaCirculacaoDaApi(token),
+      repositorioDaApi(),
+      mesasDaApi(token),
+    ])
     if (a.tipo !== "ok") return falhou(a)
     if (m.tipo !== "ok") return falhou(m)
     if (r.tipo !== "ok") return falhou(r)
+    if (me.tipo !== "ok") return falhou(me)
     return {
       ok: true,
       aplicar: (e, senhaLocal) =>
-        repositorioParaEstado(minhaCirculacaoParaEstado(acervoParaEstado(e, a.dados), m.dados, senhaLocal), r.dados),
+        mesasParaEstado(
+          repositorioParaEstado(minhaCirculacaoParaEstado(acervoParaEstado(e, a.dados), m.dados, senhaLocal), r.dados),
+          me.dados,
+        ),
     }
   }
   const [a, r] = await Promise.all([acervoPublicoDaApi(), repositorioDaApi()])
@@ -495,6 +555,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const agora = new Date()
       const { estado: novo, relatorio: rel } = aplicarRotinas(atual, hoje, agora.toISOString(), agora.getHours(), {
         expirarReservas: !sessaoRef.current.token,
+        cuidarDaFila: !sessaoRef.current.token,
       })
       const mudou =
         rel.notificacoes + rel.reservasExpiradas + rel.filaExpirada + rel.contemplados > 0 ||
@@ -542,9 +603,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const ehSocio = () => sessao.perfil === "socio"
     const agora = () => agoraISO()
 
-    // Sessão aberta pela API: acervo, circulação, sócios e repositório vivem no
-    // banco e as ações dessas áreas passam por ela (mesas, mural, doações,
-    // notificações e backups ainda são locais)
+    // Sessão aberta pela API: acervo, circulação, sócios, repositório, mural, mesas e
+    // parcerias vivem no banco e as ações dessas áreas passam por ela (notificações e
+    // backups ainda são locais)
     const viaApi = () => sessao.perfil === "admin" && !!sessao.token
     const socioViaApi = () => sessao.perfil === "socio" && !!sessao.token
     const falhaDaApi = (r: Exclude<RespostaApi<unknown>, { tipo: "ok" }>): Resultado => {
@@ -672,6 +733,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ativo: true,
         dataCadastro: cadastro.dataCadastro || existente?.dataCadastro || hoje,
         consentimentoLgpd: cadastro.consentimentoLgpd,
+        ...(cadastro.dataNascimento ? { dataNascimento: cadastro.dataNascimento } : {}),
       }
       const comSocio = {
         ...atual,
@@ -739,6 +801,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ativo: true,
         dataCadastro: hoje,
         consentimentoLgpd: hoje,
+        dataNascimento: d.dataNascimento,
       }
       commit({ ...atual, socios: [...atual.socios, novo] })
       setSessao({ perfil: "socio", usuarioId: novo.id, loginEm: agora() })
@@ -1007,6 +1070,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const end = d.endereco
       if (!end.rua.trim() || !end.numero.trim() || !end.bairro.trim()) return "Preencha rua, número e bairro."
       if (!cepValido(end.cep)) return "CEP inválido."
+      if (d.dataNascimento) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d.dataNascimento) || d.dataNascimento < "1900-01-01" || d.dataNascimento > hoje) {
+          return "Data de nascimento inválida."
+        }
+      } else if (!id) {
+        return "Informe a data de nascimento."
+      }
       if (!id && (!d.senha || d.senha.length < 6)) return "A senha inicial deve ter ao menos 6 caracteres."
       if (!d.consentimentoLgpd) return "É necessário registrar o consentimento do titular para o tratamento dos dados (LGPD)."
       return null
@@ -1037,6 +1107,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           cep: somenteDigitos(d.endereco.cep),
         },
         fotoId: d.fotoId,
+        dataNascimento: d.dataNascimento || undefined,
       }
       if (id) {
         const anterior = atual.socios.find((s) => s.id === id)
@@ -1067,7 +1138,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (viaApi()) {
         const r = await alternarAtivoSocioNaApi(sessao.token!, id)
         if (r.tipo !== "ok") return falhaDaApi(r)
-        commit({ ...ref.current, socios: trocar(ref.current.socios, r.dados.socio) })
+        commit({
+          ...ref.current,
+          socios: trocar(ref.current.socios, r.dados.socio),
+          agendamentos: r.dados.agendamentos,
+          fila: r.dados.fila,
+        })
         return ok(r.dados.mensagem)
       }
       const atual = ref.current
@@ -1077,7 +1153,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (s.ativo && emprestimosAtivos(atual, id).length > 0) {
         return falha("O sócio-leitor tem empréstimos em andamento. Registre as devoluções antes de inativar.")
       }
-      commit({ ...atual, socios: atual.socios.map((x) => (x.id === id ? { ...x, ativo: !x.ativo } : x)) })
+      const novo = { ...atual, socios: atual.socios.map((x) => (x.id === id ? { ...x, ativo: !x.ativo } : x)) }
+      commit(s.ativo ? liberarMesasDoSocio(novo, id, hoje, new Date().getHours(), agora()) : novo)
       return ok(s.ativo ? "Sócio-leitor inativado." : "Sócio-leitor reativado.")
     }
 
@@ -1109,7 +1186,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           socios: trocar(depois.socios, r.dados.socio),
           reservas: depois.reservas.map((x) => (x.socioId === id && x.status === "ativa" ? { ...x, status: "cancelada" } : x)),
           exemplares: depois.exemplares.map((x) => (liberados.has(x.id) && x.status === "reservado" ? { ...x, status: "disponivel" } : x)),
-          fila: depois.fila.map((f) => (f.socioId === id && f.status === "aguardando" ? { ...f, status: "desistiu" } : f)),
+          agendamentos: r.dados.agendamentos,
+          fila: r.dados.fila,
         })
         return ok(r.dados.mensagem)
       }
@@ -1120,7 +1198,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return falha("Não é possível anonimizar: há empréstimos ou multas em aberto.")
       }
       if (s.fotoId) removerArquivos([s.fotoId])
-      commit({
+      const anonimizado: Estado = {
         ...atual,
         socios: atual.socios.map((x) =>
           x.id === id
@@ -1133,6 +1211,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 email: "",
                 endereco: { rua: "", numero: "", bairro: "", cep: "" },
                 fotoId: undefined,
+                dataNascimento: undefined,
                 senha: "",
                 ativo: false,
                 anonimizado: true,
@@ -1140,8 +1219,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             : x,
         ),
         reservas: atual.reservas.map((r) => (r.socioId === id && r.status === "ativa" ? { ...r, status: "cancelada" } : r)),
-        fila: atual.fila.map((f) => (f.socioId === id && f.status === "aguardando" ? { ...f, status: "desistiu" } : f)),
-      })
+      }
+      commit(anonimizarCriancasDoSocio(liberarMesasDoSocio(anonimizado, id, hoje, new Date().getHours(), agora()), id))
       return ok("Dados pessoais eliminados. O histórico de circulação foi mantido sem identificação.")
     }
 
@@ -1617,7 +1696,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // -------------------- mesas de estudo --------------------
-    const socioDaOperacao = (socioIdParam: string) => (ehSocio() ? sessao.usuarioId : socioIdParam)
+    const socioDaOperacao = (socioIdParam: string) => (ehSocio() ? (sessao.usuarioId ?? "") : socioIdParam)
+
+    const aplicarMesas = (m: EstadoMesasApi) => commit({ ...ref.current, agendamentos: m.agendamentos, fila: m.fila })
+
+    const validarParaCrianca = (socio: SocioLeitor, data: string, crianca?: CriancaAgendada): string | null =>
+      crianca ? (erroDoResponsavel(socio, data) ?? erroDaCrianca(crianca)) : null
 
     const validarTurno = (data: string, turno: Turno): string | null => {
       if (!data) return "Escolha a data."
@@ -1627,21 +1711,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return null
     }
 
-    const agendarMesa = (socioIdParam: string, data: string, turno: Turno, mesaId?: string): ResultadoAgendamento => {
+    const agendarMesa = async (
+      socioIdParam: string,
+      data: string,
+      turno: Turno,
+      mesaId?: string,
+      crianca?: CriancaAgendada,
+    ): Promise<ResultadoAgendamento> => {
       if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar mesas de estudo (RN06).")
       const socioId = socioDaOperacao(socioIdParam)
+      if (viaApi() || socioViaApi()) {
+        const r = await agendarNaApi(sessao.token!, { socioId, data, turno, mesaId, crianca })
+        if (r.tipo === "erro" && r.ofereceFila) return { ok: false, mensagem: r.mensagem, ofereceFila: true }
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        aplicarMesas(r.dados)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
       if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem agendar mesas (RN06).")
       const erroTurno = validarTurno(data, turno)
       if (erroTurno) return falha(erroTurno)
-      // RN05: um turno por dia
-      const existente = agendamentoNoDia(atual, socio.id, data)
-      if (existente) {
-        return falha(`Já existe um agendamento neste dia (${labelTurno[existente.turno]}). O limite é 1 turno por dia (RN05).`)
+      const erroCrianca = validarParaCrianca(socio, data, crianca)
+      if (erroCrianca) return falha(erroCrianca)
+      const conflito = conflitoAgendamento(atual, socio.id, data, turno, crianca)
+      if (conflito) return falha(conflito)
+      const espaco = crianca ? "infantil" : "estudo"
+      const escolhida = mesaId ? atual.mesas.find((m) => m.id === mesaId) : undefined
+      if (escolhida && escolhida.espaco !== espaco) {
+        return falha(
+          crianca
+            ? "Agendamento para criança só pode ser feito em mesa do espaço infantil."
+            : "As mesas do espaço infantil são para agendamentos de crianças.",
+        )
       }
       // RN09: espaço disponível no horário escolhido
-      const livres = mesasLivres(atual, data, turno)
+      const livres = mesasLivres(atual, data, turno, espaco)
       if (livres.length === 0) {
         return { ok: false, mensagem: "Todas as mesas estão ocupadas neste turno (RN09).", ofereceFila: true }
       }
@@ -1656,25 +1761,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         status: "confirmado",
         origem: "direto",
         criadoEm: agora(),
+        ...(crianca ? { crianca: { nome: crianca.nome.trim(), idade: crianca.idade } } : {}),
       }
       commit({ ...atual, agendamentos: [...atual.agendamentos, ag] })
       return ok(`${mesa.nome} agendada para ${data.split("-").reverse().join("/")}, turno da ${labelTurno[turno].toLowerCase()}.`)
     }
 
-    const entrarNaFila = (socioIdParam: string, data: string, turno: Turno): Resultado => {
+    const entrarNaFila = async (
+      socioIdParam: string,
+      data: string,
+      turno: Turno,
+      crianca?: CriancaAgendada,
+    ): Promise<Resultado> => {
       if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem entrar na fila (RN06).")
       const socioId = socioDaOperacao(socioIdParam)
+      if (viaApi() || socioViaApi()) {
+        const r = await entrarNaFilaNaApi(sessao.token!, { socioId, data, turno, crianca })
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        aplicarMesas(r.dados)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
       if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos (RN06).")
       const erroTurno = validarTurno(data, turno)
       if (erroTurno) return falha(erroTurno)
-      if (agendamentoNoDia(atual, socio.id, data)) return falha("Você já tem um agendamento neste dia (RN05).")
-      if (mesasLivres(atual, data, turno).length > 0) return falha("Há mesas livres neste turno: faça o agendamento direto.")
-      const fila = filaDoTurno(atual, data, turno)
-      if (fila.some((f) => f.socioId === socio.id)) return falha("Você já está na fila deste turno.")
-      if (atual.fila.some((f) => f.socioId === socio.id && f.data === data && f.status === "aguardando")) {
-        return falha("Você já está na fila de outro turno neste dia (RN05).")
+      const erroCrianca = validarParaCrianca(socio, data, crianca)
+      if (erroCrianca) return falha(erroCrianca)
+      const conflito = conflitoAgendamento(atual, socio.id, data, turno, crianca)
+      if (conflito) return falha(conflito)
+      const espaco = crianca ? "infantil" : "estudo"
+      if (mesasLivres(atual, data, turno, espaco).length > 0) return falha("Há mesas livres neste turno: faça o agendamento direto.")
+      const nome = crianca?.nome.trim()
+      const mesmaPessoa = atual.fila.filter(
+        (f) =>
+          f.socioId === socio.id &&
+          f.data === data &&
+          f.status === "aguardando" &&
+          f.crianca?.nome.toLowerCase() === nome?.toLowerCase(),
+      )
+      if (mesmaPessoa.some((f) => f.turno === turno)) {
+        return falha(nome ? `${nome} já está na fila deste turno.` : "Você já está na fila deste turno.")
+      }
+      if (mesmaPessoa.length > 0) {
+        return falha(nome ? `${nome} já está na fila de outro turno neste dia.` : "Você já está na fila de outro turno neste dia (RN05).")
       }
       const entrada: EntradaFila = {
         id: uuid(),
@@ -1683,12 +1813,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         turno,
         criadoEm: agora(),
         status: "aguardando",
+        espaco,
+        ...(crianca ? { crianca: { nome: nome!, idade: crianca.idade } } : {}),
       }
       commit({ ...atual, fila: [...atual.fila, entrada] })
-      return ok(`Você entrou na fila de espera na posição ${fila.length + 1}.`)
+      return ok(`Você entrou na fila de espera na posição ${filaDoTurno(atual, data, turno, espaco).length + 1}.`)
     }
 
-    const cancelarAgendamento = (id: string): Resultado => {
+    const cancelarAgendamento = async (id: string): Promise<Resultado> => {
+      if (viaApi() || socioViaApi()) {
+        const r = await cancelarAgendamentoNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        aplicarMesas(r.dados)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const ag = atual.agendamentos.find((a) => a.id === id)
       if (!ag || ag.status !== "confirmado") return falha("Agendamento não encontrado.")
@@ -1710,7 +1848,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       )
     }
 
-    const desistirDaFila = (id: string): Resultado => {
+    const desistirDaFila = async (id: string): Promise<Resultado> => {
+      if (viaApi() || socioViaApi()) {
+        const r = await desistirDaFilaNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        aplicarMesas(r.dados)
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const f = atual.fila.find((x) => x.id === id)
       if (!f || f.status !== "aguardando") return falha("Entrada não está na fila.")
@@ -1720,7 +1864,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     // -------------------- parcerias --------------------
-    const salvarReceptor = (d: DadosReceptor, id?: string): Resultado => {
+    const salvarReceptor = async (d: DadosReceptor, id?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
       const atual = ref.current
       if (d.nome.trim().length < 3) return falha("Informe o nome.")
@@ -1732,6 +1876,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       if (d.endereco.trim().length < 5) return falha("Informe o endereço.")
       if (d.contato.trim().length < 5) return falha("Informe um contato (telefone ou e-mail).")
+      if (viaApi()) {
+        const r = await salvarInstituicaoNaApi(sessao.token!, { ...d, documento: doc }, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, instituicoes: trocar(ref.current.instituicoes, r.dados.instituicao) })
+        return ok(r.dados.mensagem)
+      }
       const registro: Instituicao = {
         id: id ?? uuid(),
         tipo: d.tipo,
@@ -1749,8 +1899,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok(id ? "Cadastro atualizado." : "Receptor cadastrado.")
     }
 
-    const excluirReceptor = (id: string): Resultado => {
+    const excluirReceptor = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        const r = await excluirInstituicaoNaApi(sessao.token!, id)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, instituicoes: ref.current.instituicoes.filter((i) => i.id !== id) })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       if (atual.movimentacoes.some((m) => m.receptorId === id)) {
         return falha("O receptor possui doações ou aquisições registradas e não pode ser excluído (rastreabilidade).")
@@ -1764,12 +1920,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .filter((m) => m.tipo === "doacao" && m.receptorId === receptorId)
         .reduce((acc, m) => acc + m.tombamentos.length, 0)
 
-    const registrarDoacao = (receptorId: string, exemplarIds: string[], observacao?: string): Resultado => {
+    const registrarDoacao = async (receptorId: string, exemplarIds: string[], observacao?: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
-      // a baixa por doação ainda não existe na API: gravar só no navegador faria o
-      // exemplar voltar ao acervo no próximo login
       if (viaApi()) {
-        return falha("Doações ainda não são gravadas no banco de dados. Registre-as sem entrar pela API.")
+        const r = await registrarDoacaoNaApi(sessao.token!, receptorId, exemplarIds, observacao)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const depois = ref.current
+        const ids = new Set(exemplarIds)
+        commit({
+          ...depois,
+          movimentacoes: [r.dados.movimentacao, ...depois.movimentacoes],
+          exemplares: depois.exemplares.map((x) =>
+            ids.has(x.id) ? { ...x, baixa: { data: r.dados.movimentacao.data, motivo: "doacao" } } : x,
+          ),
+        })
+        return ok(r.dados.mensagem)
       }
       const atual = ref.current
       // RN25: receptor precisa estar cadastrado
@@ -1818,6 +1983,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       observacao?: string,
     ): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      if (viaApi()) {
+        // exemplares e movimentação na mesma transação: ou entram os dois, ou nenhum
+        const r = await registrarAquisicaoNaApi(sessao.token!, receptorId, livroId, tombamentos, observacao)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const depois = ref.current
+        commit({
+          ...depois,
+          movimentacoes: [r.dados.movimentacao, ...depois.movimentacoes],
+          exemplares: [...depois.exemplares, ...r.dados.exemplares.map(exemplarDaApi)],
+        })
+        return ok(r.dados.mensagem)
+      }
       const atual = ref.current
       const receptor = atual.instituicoes.find((i) => i.id === receptorId)
       if (!receptor) return falha("A instituição ou pessoa de origem precisa estar cadastrada (RN25).")
@@ -2086,7 +2263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const dados = lerBackup(id)
       if (!dados || !validarEstadoImportado(dados)) return falha("Backup corrompido ou incompatível.")
       criarBackup(ref.current, false) // ponto de retorno antes de restaurar
-      commit(dados)
+      commit(normalizarEstado(dados))
       return ok("Backup restaurado. Um backup do estado anterior foi gerado por segurança.")
     }
 
@@ -2094,7 +2271,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!ehAdmin()) return falha(NEGADO)
       if (!validarEstadoImportado(dados)) return falha("Arquivo de backup inválido ou de versão incompatível.")
       criarBackup(ref.current, false)
-      commit(dados)
+      commit(normalizarEstado(dados))
       return ok("Backup importado com sucesso.")
     }
 

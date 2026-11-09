@@ -103,6 +103,7 @@ export interface SocioLeitor {
   ativo: boolean
   dataCadastro: string
   consentimentoLgpd: string // data do consentimento (RNF06); "" = pendente (cadastro migrado)
+  dataNascimento?: string // US28: ausente em cadastros antigos e após a anonimização
   anonimizado?: boolean // dados pessoais eliminados a pedido do titular (LGPD)
 }
 
@@ -196,11 +197,19 @@ export interface Notificacao {
 
 // Mesas de estudo (RF10 / RF11)
 export type Turno = "manha" | "tarde" | "noite"
+export type Espaco = "estudo" | "infantil" // US28
 
 export interface MesaEstudo {
   id: string
   nome: string
   local: string
+  espaco: Espaco
+}
+
+// US28: criança sob responsabilidade do sócio; sem idade depois da anonimização
+export interface CriancaAgendada {
+  nome: string
+  idade?: number
 }
 
 export interface Agendamento {
@@ -212,6 +221,7 @@ export interface Agendamento {
   status: "confirmado" | "cancelado"
   origem: "direto" | "fila"
   criadoEm: string
+  crianca?: CriancaAgendada
 }
 
 export interface EntradaFila {
@@ -222,6 +232,8 @@ export interface EntradaFila {
   criadoEm: string // ISO datetime — define a ordem da fila
   status: "aguardando" | "contemplado" | "desistiu" | "expirada"
   agendamentoId?: string // agendamento gerado quando contemplado
+  espaco: Espaco
+  crianca?: CriancaAgendada
 }
 
 // Parcerias e instituições (RF13 / RN25 / RN26)

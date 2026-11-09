@@ -40,6 +40,7 @@ import {
   TODAS_CATEGORIAS,
   TODOS_STATUS,
   labelCategoria,
+  labelMovimentacao,
   labelStatus,
 } from "@/lib/constants"
 import { catalogar } from "@/lib/catalogacao"
@@ -63,7 +64,7 @@ const formVazio = (): DadosLivro => ({
 
 export function AcervoPage() {
   const store = useStore()
-  const { livros, exemplares, desbastes, perfil, autoresDoLivro, exemplaresDoLivro, getLivro, arquivos } = store
+  const { livros, exemplares, desbastes, perfil, autoresDoLivro, exemplaresDoLivro, getLivro, arquivos, movimentacoes, instituicoes } = store
   const notificar = useAcao()
   // As ações de acervo esperam o servidor: ignora um segundo clique enquanto uma está em andamento
   const emAndamento = useRef(false)
@@ -299,6 +300,22 @@ export function AcervoPage() {
                           </tbody>
                         </table>
                       </div>
+                      {movimentacoes.some((m) => m.livroId === livro.id) && (
+                        <div className="mt-5">
+                          <p className="mb-2 text-sm font-medium">Doações e aquisições</p>
+                          <ul className="divide-y divide-border text-sm">
+                            {movimentacoes
+                              .filter((m) => m.livroId === livro.id)
+                              .map((m) => (
+                                <li key={m.id} className="py-2">
+                                  <span className="font-medium">{labelMovimentacao[m.tipo]}</span> ·{" "}
+                                  {instituicoes.find((i) => i.id === m.receptorId)?.nome ?? "-"} · {formatDate(m.data)}
+                                  <span className="block font-mono text-xs text-muted-foreground">{m.tombamentos.join(", ")}</span>
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </Card>

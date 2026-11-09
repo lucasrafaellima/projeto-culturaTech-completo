@@ -53,14 +53,15 @@ export function ParceriasPage() {
     setMov({ tipo, receptorId, livroId: "", exemplarIds: [], tombamentos: "", observacao: "" })
   }
 
-  async function salvarMov() {
+  function salvarMov() {
     if (!mov) return
-    // a aquisição espera o servidor quando o acervo está no banco
-    const r =
-      mov.tipo === "doacao"
-        ? store.registrarDoacao(mov.receptorId, mov.exemplarIds, mov.observacao)
-        : await store.registrarAquisicao(mov.receptorId, mov.livroId, mov.tombamentos.split(/[\n,;]/), mov.observacao)
-    executar(r, () => setMov(null))
+    executar(
+      () =>
+        mov.tipo === "doacao"
+          ? store.registrarDoacao(mov.receptorId, mov.exemplarIds, mov.observacao)
+          : store.registrarAquisicao(mov.receptorId, mov.livroId, mov.tombamentos.split(/[\n,;]/), mov.observacao),
+      () => setMov(null),
+    )
   }
 
   const receptorMov = mov ? instituicoes.find((i) => i.id === mov.receptorId) : undefined
@@ -271,7 +272,7 @@ export function ParceriasPage() {
               <Button variante="outline" onClick={() => setEditando(null)}>
                 Cancelar
               </Button>
-              <Button onClick={() => executar(store.salvarReceptor(editando.form, editando.id), () => setEditando(null))}>Salvar</Button>
+              <Button onClick={() => executar(() => store.salvarReceptor(editando.form, editando.id), () => setEditando(null))}>Salvar</Button>
             </Rodape>
           </div>
         )}
@@ -399,7 +400,7 @@ export function ParceriasPage() {
         rotuloConfirmar="Excluir"
         perigo
         onCancelar={() => setExcluindo(null)}
-        onConfirmar={() => excluindo && executar(store.excluirReceptor(excluindo.id), () => setExcluindo(null))}
+        onConfirmar={() => excluindo && executar(() => store.excluirReceptor(excluindo.id), () => setExcluindo(null))}
       />
     </div>
   )

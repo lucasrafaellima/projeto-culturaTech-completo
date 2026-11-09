@@ -22,6 +22,7 @@ npm run preview    # serve o build em http://localhost:4173
 | Sócio-leitor | `153.509.460-56` (João Pedro) | `123456` | Regular, com reserva e empréstimo vencendo em 2 dias |
 | Sócio-leitor | `714.602.380-01` (Ana Beatriz) | `123456` | Multa com justificativa aguardando julgamento |
 | Sócio-leitor | `385.613.920-61` (Pedro Henrique) | `123456` | Cadastro sem e-mail: falha de notificação |
+| Sócio-leitor | `861.904.237-87` (Lucas Ferreira) | `123456` | 14 anos: não agenda para criança |
 
 Visitantes não precisam de login para o mural, a consulta pública e o repositório digital.
 Os dados de demonstração têm datas relativas ao dia do primeiro acesso. Em **Backups** é possível restaurá-los.
@@ -29,8 +30,8 @@ Os dados de demonstração têm datas relativas ao dia do primeiro acesso. Em **
 ### Verificações
 
 ```bash
-npm run verificar          # 41 verificações das regras puras (CSV, catalogação, multas, fila, notificações...)
-npm run testar-navegador   # 34 testes de ponta a ponta no Chrome headless (exige `npm run preview` rodando)
+npm run verificar          # 59 verificações das regras puras (CSV, catalogação, multas, fila, notificações...)
+npm run testar-navegador   # 50 testes de ponta a ponta no Chrome headless (exige `npm run preview` rodando)
 ```
 
 O teste de navegador usa o Chrome instalado (caminho padrão do Windows ou variável `CHROME`) e salva as telas em
@@ -106,11 +107,11 @@ seja contornada.
 | **US21** Publicar no mural | Mural → Publicar / Editar / Excluir | RF12, RNF12, RNF13 |
 | **US22** Mural sem login | Mural Cultural | RF12, RNF11 |
 | **US23** Cadastrar instituições | Parcerias e Doações → Novo cadastro | RF13 (nome, CNPJ, endereço, contato) |
-| **US24** Doação / aquisição | Parcerias e Doações → Registrar doação / aquisição | RN25, RN26, histórico por receptor |
+| **US24** Doação / aquisição | Parcerias e Doações → Registrar doação / aquisição; receptor e data também na obra, em Acervo | RN25, RN26, histórico por receptor |
 | **US25** Meu histórico | Minha Área → Meu histórico de leitura | RF04, RN23 |
 | **US26** Meus reservados | Minha Área / Consulta → Reservar | RF14, RN28 |
 | **US27** Login por perfil | Entrar / menu por perfil | RNF02, RNF01 |
-| **US28** (W) | Fora do escopo, como definido no backlog | — |
+| **US28** Agendar para criança | Mesas de Estudo → Para quem é o agendamento | Sem requisito escrito: as regras foram definidas nesta entrega (item 9 abaixo) |
 
 Além das histórias: backups automáticos diários com restauração (RNF05), textos em português com acentuação (RNF04) e
 layout responsivo com menu recolhível (RNF11).
@@ -130,12 +131,16 @@ resolvidos assim e podem ser ajustados:
 7. **Catalogação (RN19)**: segue o AACR2 — entrada pelo último sobrenome (“RAMOS, Graciliano”), com Filho/Júnior/Neto junto
    do sobrenome; até 3 autores, entrada principal pelo primeiro; mais de 3, entrada pelo título.
 8. **Turnos**: manhã 8h–12h, tarde 13h–17h, noite 18h–21h; agendamento com até 30 dias de antecedência.
+9. **Agendamento para criança (US28)**: o espaço infantil tem mesas próprias e fila separada. O responsável precisa ter
+   16 anos completos, conferidos pela data de nascimento do cadastro, e não pode ter mesa de estudo no mesmo turno da
+   criança. A criança tem de 0 a 11 anos (ECA). O agendamento para criança não conta no limite de 1 turno por dia (RN05);
+   vale 1 por dia para cada criança e até 3 crianças por dia para cada responsável.
 
 ## Limites desta entrega
 
 Com a API (`server/`) no ar, login, cadastro, acervo, circulação (US08–US11: empréstimo, renovação, datas e multa por
-atraso), sócios-leitores, repositório digital (US17–US18) e mural ficam no PostgreSQL, com os arquivos e imagens no
-Amazon S3; veja `server/README.md`. Mesas, doações, notificações e backups continuam no navegador. Sem a API, o front-end
+atraso), sócios-leitores, repositório digital (US17–US18), mural, mesas de estudo e parcerias ficam no PostgreSQL, com os
+arquivos e imagens no Amazon S3; veja `server/README.md`. Notificações e backups continuam no navegador. Sem a API, o front-end
 funciona sozinho, no modo de demonstração descrito abaixo:
 
 - **Os dados ficam no navegador** (localStorage para registros, IndexedDB para arquivos). Cada computador tem seus próprios
@@ -148,5 +153,5 @@ funciona sozinho, no modo de demonstração descrito abaixo:
 - **RNF07** (20.000 livros em até 5 s): a busca é feita em memória e é instantânea no volume de demonstração; com 20.000
   registros o gargalo passa a ser o limite de ~5 MB do localStorage, outro motivo para o back-end.
 
-Próximo passo natural: levar para a API em `server/` também mesas, doações, notificações e backups, seguindo as ações
+Próximo passo natural: levar para a API em `server/` também as notificações, seguindo as ações
 do `store.tsx`, que já estão isoladas e com as mesmas assinaturas `{ ok, mensagem }`.

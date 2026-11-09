@@ -5,7 +5,7 @@
 // gerar, baixar, restaurar e importar backups manualmente.
 // ============================================================
 import type { Backup, Estado, Sessao } from "./types"
-import { VERSAO_ESTADO } from "./mock-data"
+import { MESAS_INFANTIS, VERSAO_ESTADO } from "./mock-data"
 import { agoraISO, hojeISO, uuid } from "./utils"
 
 const CHAVE_ESTADO = "culturatech:estado"
@@ -14,13 +14,23 @@ const CHAVE_BACKUPS = "culturatech:backups"
 const PREFIXO_BACKUP = "culturatech:backup:"
 const MAX_BACKUPS = 7
 
+// Dados gravados antes do espaço infantil (US28): as mesas e a fila existentes são de estudo
+export function normalizarEstado(estado: Estado): Estado {
+  const mesas = estado.mesas.map((m) => ({ ...m, espaco: m.espaco ?? "estudo" }))
+  return {
+    ...estado,
+    mesas: mesas.some((m) => m.espaco === "infantil") ? mesas : [...mesas, ...MESAS_INFANTIS],
+    fila: estado.fila.map((f) => ({ ...f, espaco: f.espaco ?? "estudo" })),
+  }
+}
+
 export function carregarEstado(): Estado | null {
   try {
     const bruto = localStorage.getItem(CHAVE_ESTADO)
     if (!bruto) return null
     const estado = JSON.parse(bruto) as Estado
     if (estado.versao !== VERSAO_ESTADO) return null
-    return estado
+    return normalizarEstado(estado)
   } catch {
     return null
   }

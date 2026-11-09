@@ -6,10 +6,17 @@ import { catalogar, formaCatalografica, validarAutores } from "../src/lib/catalo
 import { lerObras, lerSocios, MODELOS } from "../src/lib/csv"
 import { cpfValido, cnpjValido, isbnValido, diasAtraso, addDays, hojeISO, normalizar } from "../src/lib/utils"
 import {
+  anonimizarCriancasDoSocio,
   aplicarRotinas,
+  conflitoAgendamento,
   debitos,
+  erroDaCrianca,
+  erroDoResponsavel,
   filaDoTurno,
   gerarNotificacoes,
+  idadeEm,
+  liberarMesasDoSocio,
+  mesasLivres,
   processarFila,
   socioBloqueado,
 } from "../src/lib/regras"
@@ -79,6 +86,47 @@ ok(depois.agendamentos.some((a) => a.socioId === "s1" && a.data === hoje && a.tu
 ok(filaDoTurno(depois, hoje, "manha").length === 0, "RF11 contemplado sai da fila")
 const r2 = aplicarRotinas(e, hoje, agora, 13)
 ok(r2.estado.fila.find((f) => f.id === "f1")?.status === "expirada", "fila de turno encerrado expira")
+
+// US28: espaço infantil
+ok(mesasLivres(e, hoje, "manha").length === 0, "mesas de estudo lotadas de manhã")
+ok(mesasLivres(e, hoje, "manha", "infantil").length === 2, "lotar o estudo não ocupa o espaço infantil")
+ok(idadeEm("2010-05-20", "2026-05-19") === 15 && idadeEm("2010-05-20", "2026-05-20") === 16, "idade completa na data")
+ok(erroDoResponsavel({ dataNascimento: undefined }, hoje)?.includes("data de nascimento") === true, "US28 cadastro sem data não agenda para criança")
+ok(erroDoResponsavel({ dataNascimento: addDays(hoje, -365 * 14) }, hoje)?.includes("16 anos") === true, "US28 menor de 16 não agenda para criança")
+ok(erroDoResponsavel({ dataNascimento: "1990-01-01" }, hoje) === null, "US28 adulto agenda para criança")
+ok(erroDaCrianca({ nome: "Bia", idade: 12 }) !== null && erroDaCrianca({ nome: "Bia", idade: Number.NaN }) !== null, "US28 idade da criança validada")
+ok(erroDaCrianca({ nome: "Bia", idade: 11 }) === null && erroDaCrianca({ nome: " ", idade: 5 }) !== null, "US28 nome da criança validado")
+const D1 = addDays(hoje, 5)
+const proprio = { id: "x1", mesaId: "mesa1", socioId: "s4", data: D1, turno: "manha" as const, status: "confirmado" as const, origem: "direto" as const, criadoEm: agora }
+const comProprio = { ...e, agendamentos: [...e.agendamentos, proprio] }
+ok(conflitoAgendamento(comProprio, "s4", D1, "tarde")?.includes("RN05") === true, "RN05 segundo turno próprio no dia")
+ok(conflitoAgendamento(comProprio, "s4", D1, "tarde", { nome: "Bia", idade: 5 }) === null, "US28 criança não conta na RN05")
+ok(conflitoAgendamento(comProprio, "s4", D1, "manha", { nome: "Bia", idade: 5 })?.includes("mesa de estudo") === true, "US28 responsável não fica em dois lugares")
+const comCrianca = { ...comProprio, agendamentos: [...comProprio.agendamentos, { ...proprio, id: "x2", mesaId: "mesa5", turno: "tarde" as const, crianca: { nome: "Bia", idade: 5 } }] }
+ok(conflitoAgendamento(comCrianca, "s4", D1, "noite", { nome: "bia", idade: 5 })?.includes("já tem") === true, "US28 uma vez por dia para cada criança")
+const noLimite = {
+  ...comProprio,
+  agendamentos: [
+    ...comProprio.agendamentos,
+    ...["A", "B", "C"].map((n, i) => ({ ...proprio, id: `y${i}`, mesaId: "mesa5", turno: "tarde" as const, crianca: { nome: n, idade: 5 } })),
+  ],
+}
+ok(conflitoAgendamento(noLimite, "s4", D1, "noite", { nome: "D", idade: 5 })?.includes("limite") === true, "US28 limite de crianças por dia")
+const filaInfantil = { id: "f9", socioId: "s-sem-agendamento", data: hoje, turno: "manha" as const, criadoEm: agora, status: "aguardando" as const, espaco: "infantil" as const, crianca: { nome: "Nina", idade: 4 } }
+const lotadoEstudo = { ...e, mesas: e.mesas.filter((m) => m.espaco === "estudo"), fila: [...e.fila, filaInfantil] }
+const liberouEstudo = processarFila({ ...lotadoEstudo, agendamentos: lotadoEstudo.agendamentos.map((a) => (a.id === "ag1" ? { ...a, status: "cancelado" as const } : a)) }, hoje, "manha", agora)
+ok(liberouEstudo.fila.find((f) => f.id === "f9")?.status === "aguardando", "US28 mesa de estudo liberada não contempla a fila infantil")
+ok(filaDoTurno(e, hoje, "manha", "infantil").length === 0 && filaDoTurno(e, hoje, "manha").length === 1, "filas separadas por espaço")
+const rotinaApi = aplicarRotinas({ ...e, agendamentos: e.agendamentos.filter((a) => a.id !== "ag1") }, hoje, agora, 9, { cuidarDaFila: false })
+ok(rotinaApi.relatorio.contemplados === 0 && rotinaApi.estado.fila.find((f) => f.id === "f1")?.status === "aguardando", "com o banco, a rotina do navegador não mexe na fila")
+const inativado = liberarMesasDoSocio(e, "s2", hoje, 9, agora)
+ok(
+  inativado.agendamentos.find((a) => a.id === "ag1")?.status === "cancelado" &&
+    inativado.agendamentos.some((a) => a.socioId === "s1" && a.origem === "fila" && a.data === hoje),
+  "inativar libera as mesas e contempla a fila",
+)
+const semDados = anonimizarCriancasDoSocio(e, "s2").agendamentos.find((a) => a.id === "ag6")
+ok(semDados?.crianca?.idade === undefined && !semDados?.crianca?.nome.includes("Clara"), "anonimizar apaga os dados da criança")
 
 // CSV (RN21 / RNF03)
 const obras = lerObras(MODELOS.obras)

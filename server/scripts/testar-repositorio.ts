@@ -190,7 +190,7 @@ const cpf = (() => {
 })()
 const socio = await chamar("POST", "/socios", {
   nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`,
-  endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, senha: "senha-teste", consentimentoLgpd: true,
+  endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, senha: "senha-teste", consentimentoLgpd: true, dataNascimento: "1990-01-01",
   fotoId: foto.corpo.arquivo.id,
 }, admin)
 conferir("sócio cadastrado com foto", socio.status === 201 && socio.corpo.socio.fotoId === foto.corpo.arquivo.id, socio.corpo)

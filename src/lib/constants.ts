@@ -1,4 +1,5 @@
 import type {
+  Espaco,
   StatusExemplar,
   Categoria,
   PerfilUsuario,
@@ -22,6 +23,9 @@ export const MULTA_DANO_SUGERIDA = 25.0 // RF15: valor sugerido, o administrador
 export const PRAZO_RESERVA_DIAS = 3 // reserva aguarda retirada por 3 dias
 export const DIAS_LEMBRETE = 3 // RF05: lembrete enviado a partir de 3 dias antes do vencimento
 export const MAX_DOACOES_PESSOA_FISICA = 1 // RN26
+export const IDADE_MINIMA_RESPONSAVEL = 16 // US28: agendamento para criança
+export const IDADE_MAXIMA_CRIANCA = 11 // US28: criança até 12 anos incompletos (ECA)
+export const MAX_CRIANCAS_POR_DIA = 3 // US28: limite por responsável
 export const MIN_JUSTIFICATIVA = 20 // RN07 / RN24: texto mínimo de uma justificativa "fundamentada"
 
 // Categorias restritas (RN04 / RNF09): apenas consulta local
@@ -93,6 +97,11 @@ export const labelTurno: Record<Turno, string> = {
   manha: "Manhã",
   tarde: "Tarde",
   noite: "Noite",
+}
+
+export const labelEspaco: Record<Espaco, string> = {
+  estudo: "Mesas de estudo",
+  infantil: "Espaço infantil",
 }
 
 export const horarioTurno: Record<Turno, string> = {

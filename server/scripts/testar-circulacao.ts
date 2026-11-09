@@ -84,6 +84,7 @@ function dadosSocio(nome: string, cpf: string) {
     endereco: { rua: "Rua do Teste", numero: "1", bairro: "Centro", cep: "57300000" },
     senha: "senha-teste",
     consentimentoLgpd: true,
+    dataNascimento: "1990-01-01",
   }
 }
 const cpfA = cpfAleatorio()

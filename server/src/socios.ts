@@ -2,8 +2,9 @@ import bcrypt from "bcryptjs"
 import { Router, type NextFunction, type Request, type Response } from "express"
 import pg from "pg"
 import { pool } from "./db.ts"
-import { exigirAdmin } from "./auth.ts"
+import { exigirAdmin, type UsuarioLogado } from "./auth.ts"
 import { apagarArquivosDoBanco, apagarObjeto } from "./arquivos.ts"
+import { anonimizarCriancasDoSocio, estadoDasMesas, liberarMesasDoSocio } from "./mesas.ts"
 import { validarDadosSocio, validarSenha, type DadosCadastro } from "./cadastro.ts"
 import { ErroRegra, UUID, corpoDe, emTransacao, idDe, texto, tratarErroDeRegra } from "./comum.ts"
 
@@ -19,7 +20,8 @@ export async function listarSocios(c: Consulta, filtro = "TRUE", valores: unknow
     `SELECT s.id, s.nome, s.cpf, s.rg, s.telefone, s.email, s.foto_arquivo_id,
             s.endereco_rua, s.endereco_numero, s.endereco_bairro, s.endereco_cep, s.ativo, s.anonimizado,
             to_char(s.data_cadastro, 'YYYY-MM-DD') AS data_cadastro,
-            to_char(s.consentimento_lgpd, 'YYYY-MM-DD') AS consentimento_lgpd
+            to_char(s.consentimento_lgpd, 'YYYY-MM-DD') AS consentimento_lgpd,
+            to_char(s.data_nascimento, 'YYYY-MM-DD') AS data_nascimento
        FROM socio_leitor s WHERE ${filtro}
       ORDER BY lower(s.nome)`,
     valores,
@@ -42,6 +44,7 @@ export async function listarSocios(c: Consulta, filtro = "TRUE", valores: unknow
     ativo: s.ativo,
     dataCadastro: s.data_cadastro,
     consentimentoLgpd: s.consentimento_lgpd ?? "",
+    ...(s.data_nascimento ? { dataNascimento: s.data_nascimento } : {}),
     ...(s.anonimizado ? { anonimizado: true } : {}),
   }))
 }
@@ -98,9 +101,9 @@ rotasSocios.post("/socios", async (req, res) => {
     await conferirFoto(c, fotoId, null)
     const { rows } = await c.query<{ id: string }>(
       `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, foto_arquivo_id, endereco_rua, endereco_numero,
-                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE) RETURNING id`,
-      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep, senhaHash],
+                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd, data_nascimento)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE, $12) RETURNING id`,
+      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep, senhaHash, d.dataNascimento],
     )
     return umSocio(c, rows[0].id)
   })
@@ -126,10 +129,10 @@ rotasSocios.put("/socios/:id", async (req, res) => {
     await c.query(
       `UPDATE socio_leitor
           SET nome = $2, cpf = $3, rg = $4, telefone = $5, email = $6, foto_arquivo_id = $7, endereco_rua = $8,
-              endereco_numero = $9, endereco_bairro = $10, endereco_cep = $11,
+              endereco_numero = $9, endereco_bairro = $10, endereco_cep = $11, data_nascimento = $12,
               consentimento_lgpd = COALESCE(consentimento_lgpd, CURRENT_DATE)
         WHERE id = $1`,
-      [id, d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep],
+      [id, d.nome, d.cpf, d.rg || null, d.telefone, d.email, fotoId, d.rua, d.numero, d.bairro, d.cep, d.dataNascimento],
     )
     const fotoApagada = atual.foto_arquivo_id !== fotoId ? await apagarFotoAntiga(c, atual.foto_arquivo_id) : null
     return { fotoApagada, socio: await umSocio(c, id) }
@@ -144,7 +147,7 @@ rotasSocios.post("/socios/:id/ativo", async (req, res) => {
   const r = await emTransacao(async (c) => {
     const s = (
       await c.query<{ ativo: boolean; anonimizado: boolean }>(
-        "SELECT ativo, anonimizado FROM socio_leitor WHERE id = $1 FOR UPDATE",
+        "SELECT ativo, anonimizado FROM socio_leitor WHERE id = $1 FOR NO KEY UPDATE",
         [id],
       )
     ).rows[0]
@@ -157,9 +160,15 @@ rotasSocios.post("/socios/:id/ativo", async (req, res) => {
       }
     }
     await c.query("UPDATE socio_leitor SET ativo = NOT ativo WHERE id = $1", [id])
+    if (s.ativo) await liberarMesasDoSocio(c, id)
     return { estavaAtivo: s.ativo, socio: await umSocio(c, id) }
   })
-  res.json({ ok: true, mensagem: r.estavaAtivo ? "Sócio-leitor inativado." : "Sócio-leitor reativado.", socio: r.socio })
+  res.json({
+    ok: true,
+    mensagem: r.estavaAtivo ? "Sócio-leitor inativado." : "Sócio-leitor reativado.",
+    socio: r.socio,
+    ...(await estadoDasMesas(pool, res.locals.usuario as UsuarioLogado)),
+  })
 })
 
 // POST /api/socios/:id/senha  { "senha": "..." }
@@ -179,7 +188,7 @@ rotasSocios.post("/socios/:id/anonimizar", async (req, res) => {
   const id = idDe(req, "Sócio-leitor não encontrado.")
   const r = await emTransacao(async (c) => {
     const s = (
-      await c.query<{ foto_arquivo_id: string | null }>("SELECT foto_arquivo_id FROM socio_leitor WHERE id = $1 FOR UPDATE", [id])
+      await c.query<{ foto_arquivo_id: string | null }>("SELECT foto_arquivo_id FROM socio_leitor WHERE id = $1 FOR NO KEY UPDATE", [id])
     ).rows[0]
     if (!s) throw new ErroRegra(404, "Sócio-leitor não encontrado.")
     const { rows } = await c.query<{ pendente: boolean }>(
@@ -192,12 +201,14 @@ rotasSocios.post("/socios/:id/anonimizar", async (req, res) => {
       `UPDATE socio_leitor
           SET nome = 'Titular anonimizado ' || upper(left(id::text, 4)), cpf = NULL, rg = NULL, telefone = NULL,
               email = NULL, foto_arquivo_id = NULL, endereco_rua = NULL, endereco_numero = NULL,
-              endereco_bairro = NULL, endereco_cep = NULL, senha_hash = NULL, ativo = FALSE, anonimizado = TRUE
+              endereco_bairro = NULL, endereco_cep = NULL, senha_hash = NULL, data_nascimento = NULL,
+              ativo = FALSE, anonimizado = TRUE
         WHERE id = $1`,
       [id],
     )
     await c.query("UPDATE reserva SET status = 'cancelada' WHERE socio_id = $1 AND status = 'ativa'", [id])
-    await c.query("UPDATE fila_espera SET status = 'desistiu' WHERE socio_id = $1 AND status = 'aguardando'", [id])
+    await liberarMesasDoSocio(c, id)
+    await anonimizarCriancasDoSocio(c, id)
     return { fotoApagada: await apagarFotoAntiga(c, s.foto_arquivo_id), socio: await umSocio(c, id) }
   })
   if (r.fotoApagada) await apagarObjeto(r.fotoApagada)
@@ -205,6 +216,7 @@ rotasSocios.post("/socios/:id/anonimizar", async (req, res) => {
     ok: true,
     mensagem: "Dados pessoais eliminados. O histórico de circulação foi mantido sem identificação.",
     socio: r.socio,
+    ...(await estadoDasMesas(pool, res.locals.usuario as UsuarioLogado)),
   })
 })
 

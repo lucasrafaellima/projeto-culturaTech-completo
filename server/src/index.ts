@@ -9,6 +9,8 @@ import { rotasRepositorio } from "./repositorio.ts"
 import { rotasCirculacao } from "./circulacao.ts"
 import { rotasSocios } from "./socios.ts"
 import { rotasMural } from "./mural.ts"
+import { rotasMesas } from "./mesas.ts"
+import { rotasParcerias } from "./parcerias.ts"
 import { limparFalhas, registrarFalha, segundosBloqueado } from "./limitador.ts"
 
 const app = express()
@@ -99,6 +101,8 @@ app.use("/api", rotasRepositorio)
 app.use("/api", rotasCirculacao)
 app.use("/api", rotasSocios)
 app.use("/api", rotasMural)
+app.use("/api", rotasMesas)
+app.use("/api", rotasParcerias)
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ ok: false, mensagem: "Rota não encontrada." })

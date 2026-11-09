@@ -87,6 +87,7 @@ const novo = {
   endereco: { rua: "Rua de Teste", numero: "1", bairro: "Centro", cep: "57300-000" },
   senha: "senha-teste",
   consentimentoLgpd: true,
+  dataNascimento: "1990-01-01",
 }
 
 const criado = await cadastrar(novo)

@@ -21,17 +21,20 @@ então o front chama `fetch("/api/auth/login")` sem se preocupar com CORS.
 
 ```bash
 npm run testar-login        # 22 verificações de login e cadastro (API precisa estar rodando)
-npm run testar-acervo       # 48 verificações das rotas de acervo
+npm run testar-acervo       # 54 verificações das rotas de acervo
 npm run testar-circulacao   # 66 verificações de empréstimos, renovações, multas, reservas e sócios
-npm run testar-repositorio  # 41 verificações de arquivos, repositório digital e consulta pública
+npm run testar-repositorio  # 50 verificações de arquivos, repositório digital e consulta pública
 npm run testar-mural        # 21 verificações do mural (publicações e imagens)
+npm run testar-mesas        # 61 verificações de mesas, fila de espera e espaço infantil
+npm run testar-parcerias    # 41 verificações de instituições, doações e aquisições
 npm run testar-s3           # grava, lê e apaga um objeto no armazenamento (não usa o banco)
 npm run tipos               # checagem de tipos
 ```
 
 > Os scripts gravam no banco: sócios, obras, empréstimos e arquivos "de teste" (CPF, ISBN e tombamentos aleatórios a
 > cada execução). O `testar-circulacao` também ajusta direto no banco as datas de um empréstimo que ele mesmo criou,
-> para simular atraso (usa as variáveis `PG*` do `.env`). Rode contra um banco de testes.
+> para simular atraso (usa as variáveis `PG*` do `.env`). O `testar-mesas` também lê e altera linhas direto no banco.
+> Rode contra um banco de testes, recarregado antes de cada rodada completa: os scripts contam com os dados de exemplo.
 
 ### Arquivos no Amazon S3
 
@@ -146,12 +149,12 @@ Cadastro feito pelo próprio visitante (tela "Criar conta"). Recebe os mesmos ca
   "nome": "Maria da Silva", "cpf": "111.444.777-35", "rg": "1234567",
   "telefone": "(82) 99999-0000", "email": "maria@example.com",
   "endereco": { "rua": "Rua A", "numero": "10", "bairro": "Centro", "cep": "57300-000" },
-  "senha": "minha-senha", "consentimentoLgpd": true
+  "senha": "minha-senha", "consentimentoLgpd": true, "dataNascimento": "1990-05-20"
 }
 ```
 
 Aplica as mesmas validações do front (`validarSocio`): nome completo, CPF com dígito verificador, telefone com DDD,
-e-mail, endereço, CEP, senha de 6 a 72 caracteres sem espaço nas pontas e consentimento LGPD. O RG é opcional
+e-mail, endereço, CEP, data de nascimento, senha de 6 a 72 caracteres sem espaço nas pontas e consentimento LGPD. O RG é opcional
 (até 20 caracteres; vazio vira `NULL` no banco).
 CPF, telefone e CEP são gravados só com dígitos; o e-mail, em minúsculas; `consentimento_lgpd` recebe a data do dia.
 
@@ -301,15 +304,56 @@ Código em [src/mural.ts](src/mural.ts). Notícias, eventos e novidades literár
 
 As imagens ligadas a uma publicação são **públicas** em `GET /api/arquivos/:id`, como as digitalizações do repositório.
 
+## Mesas de estudo, fila e espaço infantil (RF10 / RF11 / US28)
+
+Código em [src/mesas.ts](src/mesas.ts). As rotas exigem login, de administrador ou de sócio. Com token de sócio, vale
+sempre o id do token; o administrador informa `socioId`.
+
+| Método | Rota | Regras |
+|---|---|---|
+| GET | `/api/mesas` | `{ mesas, agendamentos, fila }`, de hoje em diante; antes, expira a fila de turnos encerrados |
+| POST | `/api/agendamentos` | `{ socioId?, data, turno, mesaId?, crianca?: { nome, idade } }`; até 30 dias à frente; RN05, RN06 e RN09. Espaço lotado responde `409` com `ofereceFila: true` |
+| POST | `/api/agendamentos/:id/cancelar` | admin ou o próprio sócio; libera a mesa e contempla o primeiro da fila daquele espaço |
+| POST | `/api/fila` | `{ socioId?, data, turno, crianca? }`; só com o espaço lotado (RF11) |
+| POST | `/api/fila/:id/desistir` | admin ou o próprio sócio |
+
+As ações respondem com `{ agendamentos, fila }` atualizados, porque cancelar pode contemplar outra pessoa.
+
+- **Privacidade:** o sócio recebe os agendamentos e a fila dos outros com `socioId` vazio e sem dados de criança. Vê a
+  ocupação e a posição, mas não quem está lá.
+- **Espaços:** cada mesa é de `estudo` ou `infantil`. Agendamento para si só em mesa de estudo; para criança, só em
+  mesa infantil. A fila é separada por espaço.
+- **Agendamento para criança (US28):** o responsável precisa ter ao menos 16 anos na data do agendamento, com a data de
+  nascimento no cadastro. A criança tem de 0 a 11 anos. Vale 1 agendamento por dia para cada criança e até 3 crianças
+  por dia para cada responsável, e esses agendamentos não contam na RN05. O responsável não pode ter mesa de estudo
+  própria no mesmo turno de uma criança dele.
+- **Fuso horário:** turnos e datas seguem o relógio de Arapiraca (`America/Maceio`), porque o RDS roda em UTC.
+- **Concorrência:** uma trava por data, turno e espaço (`pg_advisory_xact_lock`) serializa quem disputa as mesas.
+- **Inativar ou anonimizar um sócio** cancela os agendamentos futuros dele, tira ele da fila e contempla o próximo.
+  Anonimizar também apaga a data de nascimento e os dados das crianças.
+
+## Instituições, doações e aquisições (RF13 / RN25 / RN26)
+
+Código em [src/parcerias.ts](src/parcerias.ts). Todas as rotas são só para administrador.
+
+| Método | Rota | Regras |
+|---|---|---|
+| GET | `/api/parcerias` | `{ instituicoes, movimentacoes }`, com os tombamentos de cada movimentação |
+| POST, PUT | `/api/instituicoes` | `{ tipo: "instituicao" \| "pessoa_fisica", nome, documento, endereco, contato }`: CNPJ ou CPF válido e único |
+| DELETE | `/api/instituicoes/:id` | `409` se houver movimentação (rastreabilidade) |
+| POST | `/api/movimentacoes/doacao` | `{ receptorId, exemplarIds, observacao? }`: receptor cadastrado (RN25), pessoa física recebe no máximo 1 livro (RN26), uma obra por doação, só exemplar disponível ou ocioso. O exemplar recebe baixa com motivo `doacao` |
+| POST | `/api/movimentacoes/aquisicao` | `{ receptorId, livroId, tombamentos, observacao? }`: cria os exemplares e a movimentação na mesma transação |
+
 ## Como o front-end usa a API
 
-Com a API no ar, o **banco é a fonte** do acervo, da circulação, dos sócios e do repositório
+Com a API no ar, o **banco é a fonte** do acervo, da circulação, dos sócios, do repositório, do mural, das mesas e das
+parcerias
 (`src/lib/store.tsx`, `src/lib/api.ts`, `src/lib/arquivos.ts`):
 
 | Quem | O que vem do banco (no login e ao reabrir o app) |
 |---|---|
-| Administrador conectado pela API | acervo completo, circulação (empréstimos, multas, danos, reservas), sócios, repositório e mural |
-| Sócio conectado pela API | acervo público, o próprio cadastro e a própria circulação, repositório e mural |
+| Administrador conectado pela API | acervo completo, circulação (empréstimos, multas, danos, reservas), sócios, repositório, mural, mesas e parcerias |
+| Sócio conectado pela API | acervo público, o próprio cadastro e a própria circulação, repositório, mural e mesas (dos outros sócios, só a ocupação) |
 | Visitante | acervo público, repositório e mural |
 
 1. Os dados do navegador são **substituídos** pelos do banco. Se o carregamento falhar no login, o login é recusado,
@@ -322,12 +366,15 @@ Com a API no ar, o **banco é a fonte** do acervo, da circulação, dos sócios 
    no navegador. Sem a API no login (modo de demonstração), tudo continua local, como antes, e o cabeçalho mostra o
    aviso **"Modo demonstração"**. Se o app for reaberto com a API no ar e a sessão estiver nesse modo, ela é encerrada,
    para o próximo login usar o banco.
-5. Token expirado ou recusado (`401`) encerra a sessão. Com a circulação no banco, a rotina diária do navegador não
-   expira reservas (quem faz isso é o servidor); os avisos de prazo (RF05) continuam sendo gerados no navegador.
+5. Token expirado ou recusado (`401`) encerra a sessão. Com os dados no banco, a rotina diária do navegador não expira
+   reservas nem cuida da fila de espera (quem faz isso é o servidor); os avisos de prazo (RF05) continuam sendo gerados
+   no navegador.
 
 Limitações conhecidas desse modo:
 
-- **Continuam locais:** mesas de estudo e fila, doações (recusadas com a sessão pela API), notificações e backups. Agendamentos de mesa feitos com os sócios de demonstração aparecem sem o nome do sócio.
+- **Continuam locais:** notificações e backups. Por isso, quem é contemplado pela fila vê o agendamento em Mesas e na
+  Minha Área, mas não recebe e-mail.
+- **Banco antigo:** sem rodar `database/05_mesas_espaco_infantil.sql`, as rotas de mesas falham e o login é recusado.
 - **Importação de sócios por planilha** é recusada com a sessão pela API (a planilha não traz o consentimento LGPD que
   o banco exige); cadastre pela tela Sócios-leitores.
 - **Dados de demonstração:** os PDFs de exemplo do navegador não existem no banco; o repositório começa só com a pasta

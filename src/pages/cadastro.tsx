@@ -3,7 +3,7 @@ import { Eye, EyeOff, UserPlus } from "lucide-react"
 import { useStore, type DadosSocio } from "@/lib/store"
 import { navegar, rotaInicialPorPerfil } from "@/lib/navigation"
 import { Aviso, Button, Card, Campo, Input, useToast } from "@/components/ui"
-import { formatCep, formatCpf, formatTelefone } from "@/lib/utils"
+import { formatCep, formatCpf, formatTelefone, hojeISO } from "@/lib/utils"
 
 const formVazio = (): DadosSocio => ({
   nome: "",
@@ -14,6 +14,7 @@ const formVazio = (): DadosSocio => ({
   endereco: { rua: "", numero: "", bairro: "", cep: "" },
   senha: "",
   consentimentoLgpd: false,
+  dataNascimento: "",
 })
 
 // Cadastro de usuário feito pelo próprio visitante (cria um sócio-leitor)
@@ -100,6 +101,18 @@ export function CadastroPage() {
             <Campo rotulo="E-mail">
               {(id) => (
                 <Input id={id} type="email" autoComplete="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+              )}
+            </Campo>
+            <Campo rotulo="Data de nascimento">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="date"
+                  autoComplete="bday"
+                  max={hojeISO()}
+                  value={form.dataNascimento ?? ""}
+                  onChange={(e) => set("dataNascimento", e.target.value)}
+                />
               )}
             </Campo>
           </div>

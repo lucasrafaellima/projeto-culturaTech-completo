@@ -260,6 +260,7 @@ export function MinhaAreaPage() {
                     <p className="text-sm text-muted-foreground">
                       {formatDate(a.data)} · {labelTurno[a.turno]} ({horarioTurno[a.turno]})
                     </p>
+                    {a.crianca && <p className="text-sm text-muted-foreground">Para {a.crianca.nome}, sob sua responsabilidade</p>}
                   </div>
                   {a.origem === "fila" && <Badge className="bg-success/15 text-success">Veio da fila</Badge>}
                 </div>

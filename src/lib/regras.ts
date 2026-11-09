@@ -5,7 +5,9 @@
 // ============================================================
 import type {
   Agendamento,
+  CriancaAgendada,
   Emprestimo,
+  Espaco,
   Estado,
   Exemplar,
   Multa,
@@ -14,7 +16,14 @@ import type {
   TipoNotificacao,
   Turno,
 } from "./types"
-import { DIAS_LEMBRETE, MULTA_POR_DIA, labelTurno } from "./constants"
+import {
+  DIAS_LEMBRETE,
+  IDADE_MAXIMA_CRIANCA,
+  IDADE_MINIMA_RESPONSAVEL,
+  MAX_CRIANCAS_POR_DIA,
+  MULTA_POR_DIA,
+  labelTurno,
+} from "./constants"
 import { diffDias, diasAtraso, emailValido, formatCurrency, formatDate, primeiroNome, uuid } from "./utils"
 
 export interface Resultado {
@@ -115,55 +124,143 @@ export function mesaLivre(e: Estado, mesaId: string, data: string, turno: Turno)
   return !agendamentosDoTurno(e, data, turno).some((a) => a.mesaId === mesaId)
 }
 
-export function mesasLivres(e: Estado, data: string, turno: Turno) {
-  return e.mesas.filter((m) => mesaLivre(e, m.id, data, turno))
+export function mesasLivres(e: Estado, data: string, turno: Turno, espaco: Espaco = "estudo") {
+  return e.mesas.filter((m) => m.espaco === espaco && mesaLivre(e, m.id, data, turno))
 }
 
+// RN05: o agendamento próprio do dia; o de criança não entra neste limite (US28)
 export function agendamentoNoDia(e: Estado, socioId: string, data: string) {
-  return e.agendamentos.find((a) => a.socioId === socioId && a.data === data && a.status === "confirmado")
+  return e.agendamentos.find((a) => a.socioId === socioId && a.data === data && a.status === "confirmado" && !a.crianca)
 }
 
-export function filaDoTurno(e: Estado, data: string, turno: Turno) {
+export function filaDoTurno(e: Estado, data: string, turno: Turno, espaco: Espaco = "estudo") {
   return e.fila
-    .filter((f) => f.data === data && f.turno === turno && f.status === "aguardando")
+    .filter((f) => f.data === data && f.turno === turno && f.status === "aguardando" && f.espaco === espaco)
     .sort((a, b) => a.criadoEm.localeCompare(b.criadoEm))
 }
 
+/** Idade completa, em anos, numa data (AAAA-MM-DD). */
+export function idadeEm(nascimento: string, data: string): number {
+  const [ano, mes, dia] = nascimento.split("-").map(Number)
+  const [anoD, mesD, diaD] = data.split("-").map(Number)
+  return anoD - ano - (mesD < mes || (mesD === mes && diaD < dia) ? 1 : 0)
+}
+
+/** US28: quem pode agendar para uma criança, na data escolhida. */
+export function erroDoResponsavel(socio: Pick<SocioLeitor, "dataNascimento">, data: string): string | null {
+  if (!socio.dataNascimento) {
+    return "A data de nascimento não está no cadastro. Peça ao administrador para preenchê-la antes de agendar para uma criança."
+  }
+  if (idadeEm(socio.dataNascimento, data) < IDADE_MINIMA_RESPONSAVEL) {
+    return `Somente maiores de ${IDADE_MINIMA_RESPONSAVEL} anos podem agendar para uma criança.`
+  }
+  return null
+}
+
+export function erroDaCrianca(crianca: CriancaAgendada): string | null {
+  const nome = crianca.nome.trim()
+  if (nome.length < 2) return "Informe o nome da criança."
+  if (nome.length > 150) return "Nome da criança muito longo (máximo de 150 caracteres)."
+  if (!Number.isInteger(crianca.idade) || crianca.idade! < 0 || crianca.idade! > IDADE_MAXIMA_CRIANCA) {
+    return `A idade da criança deve ser de 0 a ${IDADE_MAXIMA_CRIANCA} anos.`
+  }
+  return null
+}
+
 /**
- * RF11: enquanto houver mesa livre no turno, contempla o primeiro da fila.
- * Quem já tem agendamento confirmado no dia é pulado (RN05) e sai da fila.
+ * O que impede o sócio de ter este agendamento: RN05 para ele mesmo; para criança, uma por
+ * dia e o limite por responsável; e o responsável não pode estar em outra mesa no turno dela.
+ */
+export function conflitoAgendamento(
+  e: Estado,
+  socioId: string,
+  data: string,
+  turno: Turno,
+  crianca?: CriancaAgendada,
+): string | null {
+  const doDia = e.agendamentos.filter((a) => a.socioId === socioId && a.data === data && a.status === "confirmado")
+  if (!crianca) {
+    const proprio = doDia.find((a) => !a.crianca)
+    if (proprio) return `Já existe um agendamento neste dia (${labelTurno[proprio.turno]}). O limite é 1 turno por dia (RN05).`
+    if (doDia.some((a) => a.turno === turno)) {
+      return "Você tem uma criança agendada neste turno e precisa estar com ela no espaço infantil."
+    }
+    return null
+  }
+  const criancas = doDia.filter((a) => a.crianca)
+  const nome = crianca.nome.trim()
+  if (criancas.some((a) => a.crianca!.nome.toLowerCase() === nome.toLowerCase())) {
+    return `${nome} já tem um agendamento neste dia.`
+  }
+  if (criancas.length >= MAX_CRIANCAS_POR_DIA) {
+    return `O limite é de ${MAX_CRIANCAS_POR_DIA} crianças por dia para cada responsável.`
+  }
+  if (doDia.some((a) => !a.crianca && a.turno === turno)) {
+    return "Você tem mesa de estudo agendada neste turno e precisa estar com a criança no espaço infantil."
+  }
+  return null
+}
+
+/**
+ * RF11: enquanto houver mesa livre no turno, contempla o primeiro da fila de cada espaço.
+ * Quem já não pode ser atendido (conflito com outro agendamento do dia) sai da fila.
  */
 export function processarFila(e: Estado, data: string, turno: Turno, agora: string): Estado {
   let estado = e
-  for (const entrada of filaDoTurno(e, data, turno)) {
-    if (agendamentoNoDia(estado, entrada.socioId, data)) {
+  for (const espaco of ["estudo", "infantil"] as const) {
+    for (const entrada of filaDoTurno(e, data, turno, espaco)) {
+      if (conflitoAgendamento(estado, entrada.socioId, data, turno, entrada.crianca)) {
+        estado = {
+          ...estado,
+          fila: estado.fila.map((f) => (f.id === entrada.id ? { ...f, status: "desistiu" } : f)),
+        }
+        continue
+      }
+      const livre = mesasLivres(estado, data, turno, espaco)[0]
+      if (!livre) break
+      const ag: Agendamento = {
+        id: uuid(),
+        mesaId: livre.id,
+        socioId: entrada.socioId,
+        data,
+        turno,
+        status: "confirmado",
+        origem: "fila",
+        criadoEm: agora,
+        ...(entrada.crianca ? { crianca: entrada.crianca } : {}),
+      }
       estado = {
         ...estado,
-        fila: estado.fila.map((f) => (f.id === entrada.id ? { ...f, status: "desistiu" } : f)),
+        agendamentos: [...estado.agendamentos, ag],
+        fila: estado.fila.map((f) =>
+          f.id === entrada.id ? { ...f, status: "contemplado", agendamentoId: ag.id } : f,
+        ),
       }
-      continue
-    }
-    const livre = mesasLivres(estado, data, turno)[0]
-    if (!livre) break
-    const ag: Agendamento = {
-      id: uuid(),
-      mesaId: livre.id,
-      socioId: entrada.socioId,
-      data,
-      turno,
-      status: "confirmado",
-      origem: "fila",
-      criadoEm: agora,
-    }
-    estado = {
-      ...estado,
-      agendamentos: [...estado.agendamentos, ag],
-      fila: estado.fila.map((f) =>
-        f.id === entrada.id ? { ...f, status: "contemplado", agendamentoId: ag.id } : f,
-      ),
     }
   }
   return estado
+}
+
+/** Sócio inativado ou anonimizado: as mesas futuras voltam para a fila. */
+export function liberarMesasDoSocio(e: Estado, socioId: string, hoje: string, horaAtual: number, agora: string): Estado {
+  const liberados = e.agendamentos.filter(
+    (a) => a.socioId === socioId && a.status === "confirmado" && !turnoEncerrado(a.data, a.turno, hoje, horaAtual),
+  )
+  const ids = new Set(liberados.map((a) => a.id))
+  let estado: Estado = {
+    ...e,
+    agendamentos: e.agendamentos.map((a) => (ids.has(a.id) ? { ...a, status: "cancelado" } : a)),
+    fila: e.fila.map((f) => (f.socioId === socioId && f.status === "aguardando" ? { ...f, status: "desistiu" } : f)),
+  }
+  for (const a of liberados) estado = processarFila(estado, a.data, a.turno, agora)
+  return estado
+}
+
+/** Anonimização (LGPD): tira os dados das crianças do que ficou no histórico. */
+export function anonimizarCriancasDoSocio(e: Estado, socioId: string): Estado {
+  const semDados = <T extends { id: string; socioId: string; crianca?: CriancaAgendada }>(x: T): T =>
+    x.socioId === socioId && x.crianca ? { ...x, crianca: { nome: `Criança ${x.id.slice(0, 8).toUpperCase()}` } } : x
+  return { ...e, agendamentos: e.agendamentos.map(semDados), fila: e.fila.map(semDados) }
 }
 
 // ------------------------------------------------------------
@@ -251,8 +348,9 @@ export function aplicarRotinas(
   hoje: string,
   agora: string,
   horaAtual: number,
-  // com a circulação no banco, quem expira as reservas é o servidor
-  { expirarReservas = true }: { expirarReservas?: boolean } = {},
+  // com os dados no banco, quem expira as reservas e cuida da fila é o servidor. O navegador
+  // nem conseguiria: ele só conhece os agendamentos dos outros sócios sem identificação.
+  { expirarReservas = true, cuidarDaFila = true }: { expirarReservas?: boolean; cuidarDaFila?: boolean } = {},
 ): { estado: Estado; relatorio: RelatorioRotina } {
   let estado = e
   const relatorio: RelatorioRotina = {
@@ -281,7 +379,7 @@ export function aplicarRotinas(
 
   // 2. Fila de espera de turnos já encerrados expira
   const filaVencida = estado.fila.filter(
-    (f) => f.status === "aguardando" && turnoEncerrado(f.data, f.turno, hoje, horaAtual),
+    (f) => cuidarDaFila && f.status === "aguardando" && turnoEncerrado(f.data, f.turno, hoje, horaAtual),
   )
   if (filaVencida.length > 0) {
     const ids = new Set(filaVencida.map((f) => f.id))
@@ -295,7 +393,7 @@ export function aplicarRotinas(
   // 3. Mesas liberadas contemplam a fila
   const antes = estado.fila.filter((f) => f.status === "contemplado").length
   const turnos = new Set(
-    estado.fila.filter((f) => f.status === "aguardando").map((f) => `${f.data}|${f.turno}`),
+    estado.fila.filter((f) => cuidarDaFila && f.status === "aguardando").map((f) => `${f.data}|${f.turno}`),
   )
   for (const chave of turnos) {
     const [data, turno] = chave.split("|") as [string, Turno]

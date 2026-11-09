@@ -5,24 +5,31 @@
 
 import type {
   ArquivoDigital,
+  Agendamento,
   Autor,
+  CriancaAgendada,
   Desbaste,
   Emprestimo,
   Endereco,
+  EntradaFila,
   Exemplar,
+  Instituicao,
   Livro,
+  MesaEstudo,
+  Movimentacao,
   Multa,
   OcorrenciaDano,
   PastaHistorica,
   Publicacao,
   Reserva,
   SocioLeitor,
+  Turno,
 } from "./types"
-import type { DadosDano, DadosLivro, DadosSocio } from "./store"
+import type { DadosDano, DadosLivro, DadosReceptor, DadosSocio } from "./store"
 
 export type RespostaApi<T> =
   | { tipo: "ok"; dados: T }
-  | { tipo: "erro"; status: number; mensagem: string }
+  | { tipo: "erro"; status: number; mensagem: string; ofereceFila?: boolean }
   // a API não respondeu (servidor desligado, sem rede, proxy sem destino)
   | { tipo: "indisponivel" }
 
@@ -48,9 +55,14 @@ async function chamar<T>(rota: string, init: RequestInit, tempoLimiteMs = TEMPO_
     return { tipo: "indisponivel" }
   }
 
-  const dados = corpo as { ok: boolean; mensagem?: string }
+  const dados = corpo as { ok: boolean; mensagem?: string; ofereceFila?: boolean }
   if (!resposta.ok || !dados.ok) {
-    return { tipo: "erro", status: resposta.status, mensagem: dados.mensagem ?? "Erro inesperado no servidor." }
+    return {
+      tipo: "erro",
+      status: resposta.status,
+      mensagem: dados.mensagem ?? "Erro inesperado no servidor.",
+      ...(dados.ofereceFila ? { ofereceFila: true } : {}),
+    }
   }
   return { tipo: "ok", dados: corpo as T }
 }
@@ -74,6 +86,7 @@ export type CadastroApi =
       endereco: Endereco
       dataCadastro: string
       consentimentoLgpd: string
+      dataNascimento?: string
     }
 
 export interface LoginApi {
@@ -105,6 +118,7 @@ export function cadastroNaApi(d: DadosSocio) {
       endereco: d.endereco,
       senha: d.senha ?? "",
       consentimentoLgpd: d.consentimentoLgpd,
+      dataNascimento: d.dataNascimento,
     }),
   })
 }
@@ -270,16 +284,87 @@ export const salvarSocioNaApi = (token: string, d: DadosSocio, id?: string) =>
     fotoId: d.fotoId ?? null,
     ...(id ? {} : { senha: d.senha ?? "" }),
     consentimentoLgpd: d.consentimentoLgpd,
+    dataNascimento: d.dataNascimento,
   })
 
 export const alternarAtivoSocioNaApi = (token: string, id: string) =>
-  comToken<RespSocio>(token, "POST", `/socios/${id}/ativo`, {})
+  comToken<RespSocio & EstadoMesasApi>(token, "POST", `/socios/${id}/ativo`, {})
 
 export const redefinirSenhaSocioNaApi = (token: string, id: string, senha: string) =>
   comToken<{ mensagem: string }>(token, "POST", `/socios/${id}/senha`, { senha })
 
 export const anonimizarSocioNaApi = (token: string, id: string) =>
-  comToken<RespSocio>(token, "POST", `/socios/${id}/anonimizar`, {})
+  comToken<RespSocio & EstadoMesasApi>(token, "POST", `/socios/${id}/anonimizar`, {})
+
+// ---------- mesas de estudo, fila e espaço infantil (RF10 / RF11 / US28) ----------
+
+export interface EstadoMesasApi {
+  agendamentos: Agendamento[]
+  fila: EntradaFila[]
+}
+
+export interface PedidoMesa {
+  socioId: string
+  data: string
+  turno: Turno
+  mesaId?: string
+  crianca?: CriancaAgendada
+}
+
+type RespMesas = EstadoMesasApi & { mensagem: string }
+
+export const mesasDaApi = (token: string) => comToken<EstadoMesasApi & { mesas: MesaEstudo[] }>(token, "GET", "/mesas")
+
+export const agendarNaApi = (token: string, p: PedidoMesa) => comToken<RespMesas>(token, "POST", "/agendamentos", p)
+
+export const cancelarAgendamentoNaApi = (token: string, id: string) =>
+  comToken<RespMesas>(token, "POST", `/agendamentos/${id}/cancelar`, {})
+
+export const entrarNaFilaNaApi = (token: string, p: PedidoMesa) => comToken<RespMesas>(token, "POST", "/fila", p)
+
+export const desistirDaFilaNaApi = (token: string, id: string) =>
+  comToken<RespMesas>(token, "POST", `/fila/${id}/desistir`, {})
+
+// ---------- instituições, doações e aquisições (RF13 / RN25 / RN26) ----------
+
+export interface ParceriasApi {
+  instituicoes: Instituicao[]
+  movimentacoes: Movimentacao[]
+}
+
+export const parceriasDaApi = (token: string) => comToken<ParceriasApi>(token, "GET", "/parcerias")
+
+export const salvarInstituicaoNaApi = (token: string, d: DadosReceptor, id?: string) =>
+  comToken<{ mensagem: string; instituicao: Instituicao }>(
+    token,
+    id ? "PUT" : "POST",
+    id ? `/instituicoes/${id}` : "/instituicoes",
+    d,
+  )
+
+export const excluirInstituicaoNaApi = (token: string, id: string) =>
+  comToken<{ mensagem: string }>(token, "DELETE", `/instituicoes/${id}`)
+
+export const registrarDoacaoNaApi = (token: string, receptorId: string, exemplarIds: string[], observacao?: string) =>
+  comToken<{ mensagem: string; movimentacao: Movimentacao }>(token, "POST", "/movimentacoes/doacao", {
+    receptorId,
+    exemplarIds,
+    observacao,
+  })
+
+export const registrarAquisicaoNaApi = (
+  token: string,
+  receptorId: string,
+  livroId: string,
+  tombamentos: string[],
+  observacao?: string,
+) =>
+  comToken<{ mensagem: string; movimentacao: Movimentacao; exemplares: ExemplarApi[] }>(
+    token,
+    "POST",
+    "/movimentacoes/aquisicao",
+    { receptorId, livroId, tombamentos, observacao },
+  )
 
 // ---------- repositório digital (US17 / US18) ----------
 

@@ -39,6 +39,7 @@ import {
   formatCurrency,
   formatDate,
   formatTelefone,
+  hojeISO,
   mascararCpf,
   normalizar,
   somenteDigitos,
@@ -55,6 +56,7 @@ const formVazio = (): DadosSocio => ({
   fotoId: undefined,
   senha: "",
   consentimentoLgpd: false,
+  dataNascimento: "",
 })
 
 export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
@@ -97,6 +99,7 @@ export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
         endereco: { ...s.endereco, cep: formatCep(s.endereco.cep) },
         fotoId: s.fotoId,
         consentimentoLgpd: !!s.consentimentoLgpd,
+        dataNascimento: s.dataNascimento ?? "",
       },
     })
   }
@@ -353,6 +356,7 @@ function FichaSocio({
             valor={socio.endereco.rua ? `${socio.endereco.rua}, ${socio.endereco.numero} - ${socio.endereco.bairro}` : "-"}
           />
           <Info rotulo="CEP" valor={socio.endereco.cep ? formatCep(socio.endereco.cep) : "-"} />
+          <Info rotulo="Nascimento" valor={socio.dataNascimento ? formatDate(socio.dataNascimento) : "-"} />
           <Info rotulo="Cadastro" valor={formatDate(socio.dataCadastro)} />
           <Info rotulo="Consentimento LGPD" valor={socio.consentimentoLgpd ? formatDate(socio.consentimentoLgpd) : "pendente"} />
         </div>
@@ -468,6 +472,9 @@ function FormSocio({
           </Campo>
           <Campo rotulo="E-mail" dica="Usado para os avisos de prazo de devolução (RF05).">
             {(id) => <Input id={id} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />}
+          </Campo>
+          <Campo rotulo="Data de nascimento" opcional={!novo} dica="Exigida para agendar o espaço infantil para uma criança.">
+            {(id) => <Input id={id} type="date" max={hojeISO()} value={form.dataNascimento ?? ""} onChange={(e) => set("dataNascimento", e.target.value)} />}
           </Campo>
         </div>
       </div>
