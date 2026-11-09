@@ -7,7 +7,8 @@
 //  - João Pedro: empréstimo vencendo em 2 dias (lembrete RF05) e 1 reserva (RF14)
 //  - Ana Beatriz: multa com justificativa aguardando julgamento (RN07)
 //  - Pedro Henrique: cadastro migrado sem e-mail -> falha de notificação (RF05)
-//  - Mesas: todas ocupadas hoje de manhã, com fila de espera (RF11)
+//  - Mesas: todas ocupadas hoje de manhã (uso já confirmado), com fila de espera (RF11)
+//  - Espaço Kids: Sofia, filha de João Pedro, agendada para amanhã à tarde (US29)
 // ============================================================
 import type { Estado, Exemplar, Livro, MesaEstudo } from "./types"
 import { addDays, hojeISO, isbn13 } from "./utils"
@@ -15,10 +16,20 @@ import { hashSenha } from "./seguranca"
 
 export const VERSAO_ESTADO = 1
 
-export const MESAS_INFANTIS: MesaEstudo[] = [
-  { id: "mesa5", nome: "Mesa Infantil 1", local: "Espaço infantil", espaco: "infantil" },
-  { id: "mesa6", nome: "Mesa Infantil 2", local: "Espaço infantil", espaco: "infantil" },
+// Mesas do Espaço Kids (US29)
+export const MESAS_KIDS: MesaEstudo[] = [
+  { id: "kids1", nome: "Mesa Kids 1", local: "Espaço Kids", espaco: "kids" },
+  { id: "kids2", nome: "Mesa Kids 2", local: "Espaço Kids", espaco: "kids" },
 ]
+
+/**
+ * Estado salvo (ou backup) de antes do Espaço Kids: acrescenta as mesas Kids,
+ * sem perder o que já estava gravado no navegador.
+ */
+export function completarEstado(e: Estado): Estado {
+  if (e.mesas.some((m) => m.espaco === "kids")) return e
+  return { ...e, mesas: [...e.mesas, ...MESAS_KIDS] }
+}
 
 // Arquivos de demonstração gerados no navegador no primeiro acesso
 export const ARQUIVOS_DEMO = {
@@ -240,9 +251,9 @@ export function criarEstadoInicial(): Estado {
         telefone: "82999110001",
         email: "maria.joana@email.com",
         endereco: enderecoPadrao("Rua Expedicionários Brasileiros", "120", "Centro", "57300010"),
+        dataNascimento: "1988-03-14",
         senha: senhaPadrao,
         ativo: true,
-        dataNascimento: "1985-04-12",
         dataCadastro: d(-200),
         consentimentoLgpd: d(-200),
       },
@@ -254,9 +265,9 @@ export function criarEstadoInicial(): Estado {
         telefone: "82999110002",
         email: "joao.pedro@email.com",
         endereco: enderecoPadrao("Rua São Francisco", "45", "Baixa Grande", "57307120"),
+        dataNascimento: "1979-11-02",
         senha: senhaPadrao,
         ativo: true,
-        dataNascimento: "1992-09-03",
         dataCadastro: d(-150),
         consentimentoLgpd: d(-150),
       },
@@ -268,9 +279,9 @@ export function criarEstadoInicial(): Estado {
         telefone: "82999110003",
         email: "ana.costa@email.com",
         endereco: enderecoPadrao("Avenida Ceci Cunha", "880", "Brasília", "57305200"),
+        dataNascimento: "1995-07-21",
         senha: senhaPadrao,
         ativo: true,
-        dataNascimento: "1998-01-25",
         dataCadastro: d(-120),
         consentimentoLgpd: d(-120),
       },
@@ -282,9 +293,9 @@ export function criarEstadoInicial(): Estado {
         telefone: "82999110004",
         email: "", // cadastro migrado da planilha antiga, sem e-mail
         endereco: enderecoPadrao("Rua Santa Luzia", "12", "Primavera", "57304050"),
+        dataNascimento: "1962-01-30",
         senha: senhaPadrao,
         ativo: true,
-        dataNascimento: "2001-11-30",
         dataCadastro: d(-90),
         consentimentoLgpd: d(-90),
       },
@@ -296,9 +307,9 @@ export function criarEstadoInicial(): Estado {
         telefone: "82999110005",
         email: "lucas.lima@email.com",
         endereco: enderecoPadrao("Rua Boa Vista", "300", "Cacimbas", "57309010"),
+        dataNascimento: "2009-09-05",
         senha: senhaPadrao,
         ativo: true,
-        dataNascimento: d(-365 * 14 - 10), // menor de 16: não agenda para criança (US28)
         dataCadastro: d(-40),
         consentimentoLgpd: d(-40),
       },
@@ -457,22 +468,33 @@ export function criarEstadoInicial(): Estado {
     ],
     notificacoes: [],
     mesas: [
-      { id: "mesa1", nome: "Mesa 1", local: "Sala silenciosa", espaco: "estudo" },
-      { id: "mesa2", nome: "Mesa 2", local: "Sala silenciosa", espaco: "estudo" },
-      { id: "mesa3", nome: "Mesa 3", local: "Acervo histórico", espaco: "estudo" },
-      { id: "mesa4", nome: "Mesa 4", local: "Acervo histórico", espaco: "estudo" },
-      ...MESAS_INFANTIS,
+      { id: "mesa1", nome: "Mesa 1", local: "Sala silenciosa" },
+      { id: "mesa2", nome: "Mesa 2", local: "Sala silenciosa" },
+      { id: "mesa3", nome: "Mesa 3", local: "Acervo histórico" },
+      { id: "mesa4", nome: "Mesa 4", local: "Acervo histórico" },
+      ...MESAS_KIDS,
     ],
+    // os de hoje de manhã já têm o uso confirmado, para não serem liberados pela tolerância (US30)
     agendamentos: [
-      { id: "ag1", mesaId: "mesa1", socioId: "s2", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(600) },
-      { id: "ag2", mesaId: "mesa2", socioId: "s3", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(590) },
-      { id: "ag3", mesaId: "mesa3", socioId: "s4", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(580) },
-      { id: "ag4", mesaId: "mesa4", socioId: "s5", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(570) },
+      { id: "ag1", mesaId: "mesa1", socioId: "s2", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(600), usoConfirmadoEm: ts(1) },
+      { id: "ag2", mesaId: "mesa2", socioId: "s3", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(590), usoConfirmadoEm: ts(1) },
+      { id: "ag3", mesaId: "mesa3", socioId: "s4", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(580), usoConfirmadoEm: ts(1) },
+      { id: "ag4", mesaId: "mesa4", socioId: "s5", data: hoje, turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(570), usoConfirmadoEm: ts(1) },
       { id: "ag5", mesaId: "mesa1", socioId: "s3", data: d(1), turno: "tarde", status: "confirmado", origem: "direto", criadoEm: ts(300) },
-      { id: "ag6", mesaId: "mesa5", socioId: "s2", data: d(1), turno: "manha", status: "confirmado", origem: "direto", criadoEm: ts(290), crianca: { nome: "Clara Alves", idade: 7 } },
+      {
+        id: "ag6",
+        mesaId: "kids1",
+        socioId: "s2",
+        data: d(1),
+        turno: "tarde",
+        status: "confirmado",
+        origem: "direto",
+        criadoEm: ts(240),
+        crianca: { nome: "Sofia Alves Pereira", cpf: "48219365773", dataNascimento: addDays(d(-8 * 365), -40) },
+      },
     ],
     fila: [
-      { id: "f1", socioId: "s1", data: hoje, turno: "manha", criadoEm: ts(120), status: "aguardando", espaco: "estudo" },
+      { id: "f1", socioId: "s1", data: hoje, turno: "manha", criadoEm: ts(120), status: "aguardando" },
     ],
     instituicoes: [
       {

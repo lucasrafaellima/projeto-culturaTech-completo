@@ -1,31 +1,39 @@
 import { Router, type NextFunction, type Request, type Response } from "express"
 import pg from "pg"
+import { config } from "./config.ts"
 import { pool } from "./db.ts"
-import { exigirLogin, type UsuarioLogado } from "./auth.ts"
+import { exigirAdmin, exigirLogin, type UsuarioLogado } from "./auth.ts"
+import { cpfValido } from "./cadastro.ts"
 import { ErroRegra, UUID, corpoDe, emTransacao, idDe, texto, tratarErroDeRegra } from "./comum.ts"
 
-// Mesas de estudo e espaço infantil (RF10 / RF11 / US28). Mesmas regras e mensagens de
-// agendarMesa, entrarNaFila, cancelarAgendamento e desistirDaFila (src/lib/store.tsx)
-// e de processarFila (src/lib/regras.ts).
+// Mesas de estudo (RF10 / RF11), Espaço Kids (US29) e confirmação de uso (US30). Mesmas
+// regras e mensagens de agendarMesa, agendarKids, entrarNaFila, entrarNaFilaKids,
+// cancelarAgendamento, desistirDaFila e confirmarUso (src/lib/store.tsx) e de
+// processarFila, validarCrianca e liberarVagasSemUso (src/lib/regras.ts).
 
 type Consulta = pg.PoolClient | pg.Pool
 type Turno = "manha" | "tarde" | "noite"
-type Espaco = "estudo" | "infantil"
+type Espaco = "estudo" | "kids"
 
 const TURNOS: Turno[] = ["manha", "tarde", "noite"]
+const INICIO_TURNO: Record<Turno, number> = { manha: 8, tarde: 13, noite: 18 }
 const FIM_TURNO: Record<Turno, number> = { manha: 12, tarde: 17, noite: 21 }
 const LABEL_TURNO: Record<Turno, string> = { manha: "Manhã", tarde: "Tarde", noite: "Noite" }
 const DIAS_ANTECEDENCIA = 30
-const IDADE_MINIMA_RESPONSAVEL = 16
-const IDADE_MAXIMA_CRIANCA = 11
-const MAX_CRIANCAS_POR_DIA = 3
+const IDADE_MAXIMA_KIDS = 11
+const IDADE_MINIMA_SOCIO = 12
+const TOLERANCIA_USO_MINUTOS = 15
+const AVISO_TOLERANCIA = `Apresente-se no balcão em até ${TOLERANCIA_USO_MINUTOS} minutos do início do turno; sem a confirmação de uso, a vaga é liberada.`
+const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil (RNF02)."
 
-// O RDS roda em UTC; os turnos seguem o relógio de Arapiraca
-const AGORA_LOCAL = "(now() AT TIME ZONE 'America/Maceio')"
+// O RDS roda em UTC; os turnos seguem o relógio de Arapiraca (FUSO_HORARIO)
+const FUSO = config.fusoHorario
+const AGORA_LOCAL = `(now() AT TIME ZONE '${FUSO}')`
 
 interface Crianca {
   nome: string
-  idade: number
+  cpf: string
+  dataNascimento: string
 }
 
 interface Pedido {
@@ -34,7 +42,21 @@ interface Pedido {
   crianca: Crianca | null
 }
 
-const espacoDoPedido = (crianca: Crianca | null): Espaco => (crianca ? "infantil" : "estudo")
+const espacoDoPedido = (crianca: Crianca | null): Espaco => (crianca ? "kids" : "estudo")
+const primeiroNome = (nome: string) => nome.split(" ")[0]
+const dataBr = (data: string) => data.split("-").reverse().join("/")
+
+function dataValida(data: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return false
+  const [a, m, d] = data.split("-").map(Number)
+  return new Date(Date.UTC(a, m - 1, d)).toISOString().slice(0, 10) === data
+}
+
+function idade(nascimento: string, ref: string): number {
+  const [an, mn, dn] = nascimento.split("-").map(Number)
+  const [ar, mr, dr] = ref.split("-").map(Number)
+  return ar - an - (mr < mn || (mr === mn && dr < dn) ? 1 : 0)
+}
 
 async function relogio(c: Consulta) {
   const { rows } = await c.query<{ hoje: string; hora: number; limite: string }>(
@@ -46,44 +68,50 @@ async function relogio(c: Consulta) {
   return rows[0]
 }
 
+const horaDoTurno = (horas: Record<Turno, number>, turno: string) =>
+  `CASE ${turno} WHEN 'manha' THEN ${horas.manha} WHEN 'tarde' THEN ${horas.tarde} ELSE ${horas.noite} END`
+
 // Condição SQL de turno já encerrado no relógio local
 const turnoEncerrado = (data: string, turno: string) => `(
   ${data} < ${AGORA_LOCAL}::date
-  OR (${data} = ${AGORA_LOCAL}::date AND extract(hour FROM ${AGORA_LOCAL}) >=
-      CASE ${turno} WHEN 'manha' THEN ${FIM_TURNO.manha} WHEN 'tarde' THEN ${FIM_TURNO.tarde} ELSE ${FIM_TURNO.noite} END)
+  OR (${data} = ${AGORA_LOCAL}::date AND extract(hour FROM ${AGORA_LOCAL}) >= ${horaDoTurno(FIM_TURNO, turno)})
 )`
 
-async function expirarFila(c: Consulta) {
-  await c.query(
-    `UPDATE fila_espera SET status = 'expirada' WHERE status = 'aguardando' AND ${turnoEncerrado("data", "turno")}`,
-  )
+// Serializa quem disputa as mesas e a fila de um mesmo turno e espaço
+async function travarTurno(c: pg.PoolClient, data: string, turno: Turno, espaco: Espaco) {
+  await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`mesas|${data}|${turno}|${espaco}`])
 }
+
+// ---------- leitura ----------
 
 // Sem o administrador ou o próprio sócio, a resposta mostra a ocupação e a posição na
 // fila, mas não quem está lá nem os dados da criança
 function daVisao(linha: Record<string, unknown>, usuario: UsuarioLogado) {
-  const { crianca_nome, crianca_idade, ...resto } = linha
-  if (usuario.perfil !== "admin" && linha.socioId !== usuario.id) return { ...resto, socioId: "" }
-  if (!crianca_nome) return resto
+  const { crianca_nome, crianca_cpf, crianca_nascimento, usoConfirmadoEm, ...resto } = linha
+  const base = usoConfirmadoEm ? { ...resto, usoConfirmadoEm } : resto
+  if (usuario.perfil !== "admin" && linha.socioId !== usuario.id) return { ...base, socioId: "" }
+  if (!crianca_nome) return base
   return {
-    ...resto,
-    crianca: { nome: crianca_nome, ...(crianca_idade === null ? {} : { idade: crianca_idade }) },
+    ...base,
+    crianca: { nome: crianca_nome, cpf: crianca_cpf ?? "", dataNascimento: crianca_nascimento ?? "" },
   }
 }
 
-// Agendamentos confirmados e fila em aberto, de hoje em diante
+// Agendamentos e fila em aberto, de hoje em diante
 export async function estadoDasMesas(c: Consulta, usuario: UsuarioLogado) {
   const [agendamentos, fila] = await Promise.all([
     c.query(
       `SELECT id, mesa_id AS "mesaId", socio_id AS "socioId", to_char(data, 'YYYY-MM-DD') AS data, turno, status, origem,
-              criado_em AS "criadoEm", crianca_nome, crianca_idade
+              criado_em AS "criadoEm", uso_confirmado_em AS "usoConfirmadoEm",
+              crianca_nome, crianca_cpf, to_char(crianca_nascimento, 'YYYY-MM-DD') AS crianca_nascimento
          FROM agendamento
-        WHERE status = 'confirmado' AND data >= ${AGORA_LOCAL}::date
+        WHERE status IN ('confirmado', 'nao_compareceu') AND data >= ${AGORA_LOCAL}::date
         ORDER BY data, turno, criado_em`,
     ),
     c.query(
       `SELECT id, socio_id AS "socioId", to_char(data, 'YYYY-MM-DD') AS data, turno, status, criado_em AS "criadoEm",
-              CASE WHEN crianca_nome IS NULL THEN 'estudo' ELSE 'infantil' END AS espaco, crianca_nome, crianca_idade
+              CASE WHEN crianca_nome IS NULL THEN 'estudo' ELSE 'kids' END AS espaco,
+              crianca_nome, crianca_cpf, to_char(crianca_nascimento, 'YYYY-MM-DD') AS crianca_nascimento
          FROM fila_espera
         WHERE status = 'aguardando' AND data >= ${AGORA_LOCAL}::date
         ORDER BY criado_em, id`,
@@ -95,24 +123,24 @@ export async function estadoDasMesas(c: Consulta, usuario: UsuarioLogado) {
   }
 }
 
+// ---------- pedido ----------
+
 function lerPedido(corpo: Record<string, unknown>): Pedido {
   const data = texto(corpo.data)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T00:00:00Z`))) {
-    throw new ErroRegra(400, "Escolha a data.")
-  }
+  if (!dataValida(data)) throw new ErroRegra(400, "Escolha a data.")
   const turno = texto(corpo.turno) as Turno
   if (!TURNOS.includes(turno)) throw new ErroRegra(400, "Turno inválido.")
   if (corpo.crianca === undefined || corpo.crianca === null) return { data, turno, crianca: null }
-
-  const bruta = corpo.crianca as Record<string, unknown>
-  const nome = texto(bruta.nome).replace(/\s+/g, " ")
-  if (nome.length < 2) throw new ErroRegra(400, "Informe o nome da criança.")
-  if (nome.length > 150) throw new ErroRegra(400, "Nome da criança muito longo (máximo de 150 caracteres).")
-  const idade = bruta.idade
-  if (typeof idade !== "number" || !Number.isInteger(idade) || idade < 0 || idade > IDADE_MAXIMA_CRIANCA) {
-    throw new ErroRegra(400, `A idade da criança deve ser de 0 a ${IDADE_MAXIMA_CRIANCA} anos.`)
+  const bruta = (typeof corpo.crianca === "object" ? corpo.crianca : {}) as Record<string, unknown>
+  return {
+    data,
+    turno,
+    crianca: {
+      nome: texto(bruta.nome).replace(/\s+/g, " "),
+      cpf: texto(bruta.cpf).replace(/\D/g, ""),
+      dataNascimento: texto(bruta.dataNascimento),
+    },
   }
-  return { data, turno, crianca: { nome, idade } }
 }
 
 // Com token de sócio vale sempre o próprio id; o administrador informa para quem é
@@ -130,66 +158,64 @@ async function conferirTurno(c: Consulta, { data, turno }: Pedido) {
   if (data > limite) {
     throw new ErroRegra(409, `Os agendamentos podem ser feitos com até ${DIAS_ANTECEDENCIA} dias de antecedência.`)
   }
+  return hoje
 }
 
-// RN06 e, para criança, a idade do responsável na data do agendamento (US28).
-// FOR NO KEY UPDATE serializa os pedidos do mesmo sócio sem bloquear a chave estrangeira das
-// inserções de processarFila, que já seguram a trava do turno: FOR UPDATE aqui causaria deadlock.
-async function conferirSocio(c: pg.PoolClient, socioId: string, pedido: Pedido) {
-  const { rows } = await c.query<{ ativo: boolean; anonimizado: boolean; idade: number | null }>(
-    `SELECT ativo, anonimizado,
-            extract(year FROM age($2::date, data_nascimento))::int AS idade
-       FROM socio_leitor WHERE id = $1 FOR NO KEY UPDATE`,
-    [socioId, pedido.data],
+// RN06. FOR NO KEY UPDATE serializa os pedidos do mesmo sócio sem bloquear a chave estrangeira
+// das inserções de processarFila, que já seguram a trava do turno: FOR UPDATE causaria deadlock.
+async function conferirSocio(c: pg.PoolClient, socioId: string, kids: boolean) {
+  const { rows } = await c.query<{ ativo: boolean; anonimizado: boolean }>(
+    "SELECT ativo, anonimizado FROM socio_leitor WHERE id = $1 FOR NO KEY UPDATE",
+    [socioId],
   )
   const s = rows[0]
   if (!s || !s.ativo || s.anonimizado) {
-    throw new ErroRegra(409, "Somente sócios-leitores ativos podem agendar mesas (RN06).")
-  }
-  if (!pedido.crianca) return
-  if (s.idade === null) {
     throw new ErroRegra(
       409,
-      "A data de nascimento não está no cadastro. Peça ao administrador para preenchê-la antes de agendar para uma criança.",
+      kids
+        ? "Somente sócios-leitores ativos podem agendar o Espaço Kids (RN06)."
+        : "Somente sócios-leitores ativos podem agendar mesas (RN06).",
     )
   }
-  if (s.idade < IDADE_MINIMA_RESPONSAVEL) {
-    throw new ErroRegra(409, `Somente maiores de ${IDADE_MINIMA_RESPONSAVEL} anos podem agendar para uma criança.`)
+}
+
+// US29: mesmas regras de validarCrianca (src/lib/regras.ts)
+async function conferirCrianca(c: pg.PoolClient, cr: Crianca, hoje: string, dataAgendamento: string) {
+  if (cr.nome.split(" ").length < 2) throw new ErroRegra(400, "Informe o nome completo da criança.", { campo: "nome" })
+  if (cr.nome.length > 150) throw new ErroRegra(400, "Nome da criança muito longo (máximo de 150 caracteres).", { campo: "nome" })
+  if (!cpfValido(cr.cpf)) throw new ErroRegra(400, "CPF da criança inválido. Confira os dígitos.", { campo: "cpf" })
+  const socio = await c.query("SELECT 1 FROM socio_leitor WHERE cpf = $1", [cr.cpf])
+  if (socio.rowCount) {
+    throw new ErroRegra(
+      409,
+      "Este CPF pertence a um sócio-leitor cadastrado. O Espaço Kids é para crianças sem cadastro próprio.",
+      { campo: "cpf" },
+    )
+  }
+  if (!dataValida(cr.dataNascimento)) {
+    throw new ErroRegra(400, "Informe a data de nascimento da criança.", { campo: "dataNascimento" })
+  }
+  if (cr.dataNascimento > hoje) {
+    throw new ErroRegra(400, "A data de nascimento não pode estar no futuro.", { campo: "dataNascimento" })
+  }
+  if (idade(cr.dataNascimento, dataAgendamento) > IDADE_MAXIMA_KIDS) {
+    throw new ErroRegra(
+      409,
+      `O Espaço Kids é só para crianças de até ${IDADE_MAXIMA_KIDS} anos. A partir dos ${IDADE_MINIMA_SOCIO} anos, ela pode criar a própria conta de sócio-leitor.`,
+      { campo: "dataNascimento" },
+    )
   }
 }
 
-// Mesmas regras de conflitoAgendamento (src/lib/regras.ts)
-async function conflitoDoAgendamento(c: pg.PoolClient, socioId: string, p: Pedido): Promise<string | null> {
-  const { rows } = await c.query<{ turno: Turno; crianca_nome: string | null }>(
-    "SELECT turno, crianca_nome FROM agendamento WHERE socio_id = $1 AND data = $2 AND status = 'confirmado'",
-    [socioId, p.data],
+// RN05: o turno do dia já agendado para o sócio (sem criança) ou para a criança (pelo CPF)
+async function agendamentoNoDia(c: Consulta, socioId: string, data: string, crianca: Crianca | null) {
+  const { rows } = await c.query<{ turno: Turno }>(
+    crianca
+      ? "SELECT turno FROM agendamento WHERE crianca_cpf = $1 AND data = $2 AND status = 'confirmado' LIMIT 1"
+      : "SELECT turno FROM agendamento WHERE socio_id = $1 AND data = $2 AND status = 'confirmado' AND crianca_nome IS NULL LIMIT 1",
+    [crianca ? crianca.cpf : socioId, data],
   )
-  if (!p.crianca) {
-    const proprio = rows.find((a) => !a.crianca_nome)
-    if (proprio) {
-      return `Já existe um agendamento neste dia (${LABEL_TURNO[proprio.turno]}). O limite é 1 turno por dia (RN05).`
-    }
-    if (rows.some((a) => a.turno === p.turno)) {
-      return "Você tem uma criança agendada neste turno e precisa estar com ela no espaço infantil."
-    }
-    return null
-  }
-  const criancas = rows.filter((a) => a.crianca_nome)
-  if (criancas.some((a) => a.crianca_nome!.toLowerCase() === p.crianca!.nome.toLowerCase())) {
-    return `${p.crianca.nome} já tem um agendamento neste dia.`
-  }
-  if (criancas.length >= MAX_CRIANCAS_POR_DIA) {
-    return `O limite é de ${MAX_CRIANCAS_POR_DIA} crianças por dia para cada responsável.`
-  }
-  if (rows.some((a) => !a.crianca_nome && a.turno === p.turno)) {
-    return "Você tem mesa de estudo agendada neste turno e precisa estar com a criança no espaço infantil."
-  }
-  return null
-}
-
-// Serializa quem disputa as mesas e a fila de um mesmo turno e espaço
-async function travarTurno(c: pg.PoolClient, data: string, turno: Turno, espaco: Espaco) {
-  await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`mesas|${data}|${turno}|${espaco}`])
+  return rows[0] ?? null
 }
 
 async function mesasLivres(c: Consulta, data: string, turno: Turno, espaco: Espaco) {
@@ -204,38 +230,76 @@ async function mesasLivres(c: Consulta, data: string, turno: Turno, espaco: Espa
   return rows
 }
 
-// RF11: enquanto houver mesa livre, contempla o primeiro da fila do espaço. Quem já não
-// pode ser atendido (conflito com outro agendamento do dia) sai da fila.
+// RF11: enquanto houver mesa livre, contempla o primeiro da fila do espaço. Quem já tem
+// agendamento no dia (o sócio, ou a criança no Espaço Kids) sai da fila.
 async function processarFila(c: pg.PoolClient, data: string, turno: Turno, espaco: Espaco) {
   const { rows } = await c.query<{
     id: string
     socio_id: string
     crianca_nome: string | null
-    crianca_idade: number | null
+    crianca_cpf: string | null
+    crianca_nascimento: string | null
   }>(
-    `SELECT id, socio_id, crianca_nome, crianca_idade FROM fila_espera
+    `SELECT id, socio_id, crianca_nome, crianca_cpf, to_char(crianca_nascimento, 'YYYY-MM-DD') AS crianca_nascimento
+       FROM fila_espera
       WHERE data = $1 AND turno = $2 AND status = 'aguardando' AND (crianca_nome IS NOT NULL) = $3
       ORDER BY criado_em, id`,
-    [data, turno, espaco === "infantil"],
+    [data, turno, espaco === "kids"],
   )
   let contemplados = 0
   for (const f of rows) {
-    const crianca = f.crianca_nome ? { nome: f.crianca_nome, idade: f.crianca_idade ?? 0 } : null
-    if (await conflitoDoAgendamento(c, f.socio_id, { data, turno, crianca })) {
+    const crianca = f.crianca_cpf ? { nome: f.crianca_nome!, cpf: f.crianca_cpf, dataNascimento: f.crianca_nascimento! } : null
+    if (await agendamentoNoDia(c, f.socio_id, data, crianca)) {
       await c.query("UPDATE fila_espera SET status = 'desistiu' WHERE id = $1", [f.id])
       continue
     }
     const mesa = (await mesasLivres(c, data, turno, espaco))[0]
     if (!mesa) break
     const ag = await c.query<{ id: string }>(
-      `INSERT INTO agendamento (mesa_id, socio_id, data, turno, origem, crianca_nome, crianca_idade)
-       VALUES ($1, $2, $3, $4, 'fila', $5, $6) RETURNING id`,
-      [mesa.id, f.socio_id, data, turno, f.crianca_nome, f.crianca_idade],
+      `INSERT INTO agendamento (mesa_id, socio_id, data, turno, origem, crianca_nome, crianca_cpf, crianca_nascimento)
+       VALUES ($1, $2, $3, $4, 'fila', $5, $6, $7) RETURNING id`,
+      [mesa.id, f.socio_id, data, turno, f.crianca_nome, f.crianca_cpf, f.crianca_nascimento],
     )
     await c.query("UPDATE fila_espera SET status = 'contemplado', agendamento_id = $2 WHERE id = $1", [f.id, ag.rows[0].id])
     contemplados++
   }
   return contemplados
+}
+
+// ---------- rotinas ----------
+
+async function expirarFila(c: Consulta) {
+  await c.query(
+    `UPDATE fila_espera SET status = 'expirada' WHERE status = 'aguardando' AND ${turnoEncerrado("data", "turno")}`,
+  )
+}
+
+// US30: agendamentos de hoje sem confirmação de uso depois da tolerância (contada do início
+// do turno ou, se o agendamento veio depois, de quando foi feito) liberam a vaga para a fila
+const SEM_USO = `
+  a.status = 'confirmado' AND a.uso_confirmado_em IS NULL AND a.data = ${AGORA_LOCAL}::date
+  AND extract(hour FROM ${AGORA_LOCAL}) < ${horaDoTurno(FIM_TURNO, "a.turno")}
+  AND ${AGORA_LOCAL} >= GREATEST(a.data + make_interval(hours => ${horaDoTurno(INICIO_TURNO, "a.turno")}),
+                                 a.criado_em AT TIME ZONE '${FUSO}')
+                        + make_interval(mins => ${TOLERANCIA_USO_MINUTOS})`
+
+async function liberarVagasSemUso() {
+  const { rows } = await pool.query<{ data: string; turno: Turno; espaco: Espaco }>(
+    `SELECT DISTINCT to_char(a.data, 'YYYY-MM-DD') AS data, a.turno, m.espaco
+       FROM agendamento a JOIN mesa_estudo m ON m.id = a.mesa_id WHERE ${SEM_USO} ORDER BY 1, 2, 3`,
+  )
+  if (rows.length === 0) return
+  await emTransacao(async (c) => {
+    for (const t of rows) await travarTurno(c, t.data, t.turno, t.espaco)
+    await c.query(`UPDATE agendamento a SET status = 'nao_compareceu' WHERE ${SEM_USO}`)
+    for (const t of rows) await processarFila(c, t.data, t.turno, t.espaco)
+  })
+}
+
+// Antes de ler ou de agendar: fila de turnos encerrados expira e vagas sem uso são liberadas
+async function rotinaDasMesas() {
+  await expirarFila(pool)
+  await liberarVagasSemUso()
 }
 
 // Sócio inativado ou anonimizado: as mesas futuras voltam para a fila
@@ -257,31 +321,34 @@ export async function liberarMesasDoSocio(c: pg.PoolClient, socioId: string) {
   for (const t of rows) await processarFila(c, t.data, t.turno, t.espaco)
 }
 
-// Anonimização: tira os dados das crianças do que ficou no histórico. O nome vira um
-// código por linha porque o índice único ainda precisa distinguir as crianças do dia.
+// Anonimização (LGPD): tira os dados das crianças do que ficou no histórico. O nome vira um
+// código por linha, para o registro continuar sendo do Espaço Kids.
 export async function anonimizarCriancasDoSocio(c: pg.PoolClient, socioId: string) {
   for (const tabela of ["agendamento", "fila_espera"]) {
     await c.query(
-      `UPDATE ${tabela} SET crianca_nome = 'Criança ' || upper(left(id::text, 8)), crianca_idade = NULL
+      `UPDATE ${tabela}
+          SET crianca_nome = 'Criança ' || upper(left(id::text, 8)), crianca_cpf = NULL, crianca_nascimento = NULL
         WHERE socio_id = $1 AND crianca_nome IS NOT NULL`,
       [socioId],
     )
   }
 }
 
+// ---------- rotas ----------
+
 export const rotasMesas = Router()
 
 // GET /api/mesas  (admin ou sócio)
 rotasMesas.get("/mesas", exigirLogin, async (_req, res) => {
   const usuario = res.locals.usuario as UsuarioLogado
-  await expirarFila(pool)
+  await rotinaDasMesas()
   const { rows: mesas } = await pool.query(
     "SELECT id, nome, local, espaco FROM mesa_estudo WHERE ativa ORDER BY espaco, nome",
   )
   res.json({ ok: true, mesas, ...(await estadoDasMesas(pool, usuario)) })
 })
 
-// POST /api/agendamentos  { socioId?, data, turno, mesaId?, crianca?: { nome, idade } }
+// POST /api/agendamentos  { socioId?, data, turno, mesaId?, crianca?: { nome, cpf, dataNascimento } }
 rotasMesas.post("/agendamentos", exigirLogin, async (req, res) => {
   const usuario = res.locals.usuario as UsuarioLogado
   const corpo = corpoDe(req)
@@ -290,43 +357,56 @@ rotasMesas.post("/agendamentos", exigirLogin, async (req, res) => {
   const mesaId = texto(corpo.mesaId)
   if (mesaId && !UUID.test(mesaId)) throw new ErroRegra(400, "Mesa não encontrada.")
   const espaco = espacoDoPedido(pedido.crianca)
+  const cr = pedido.crianca
+  await rotinaDasMesas()
 
   const mesa = await emTransacao(async (c) => {
-    await conferirTurno(c, pedido)
-    await conferirSocio(c, socioId, pedido)
+    await conferirSocio(c, socioId, !!cr)
+    const hoje = await conferirTurno(c, pedido)
+    if (cr) await conferirCrianca(c, cr, hoje, pedido.data)
     await travarTurno(c, pedido.data, pedido.turno, espaco)
-    const conflito = await conflitoDoAgendamento(c, socioId, pedido)
-    if (conflito) throw new ErroRegra(409, conflito)
-
+    const existente = await agendamentoNoDia(c, socioId, pedido.data, cr)
+    if (existente) {
+      throw new ErroRegra(
+        409,
+        cr
+          ? `${primeiroNome(cr.nome)} já tem agendamento no Espaço Kids neste dia (${LABEL_TURNO[existente.turno]}). O limite é 1 turno por dia (RN05).`
+          : `Já existe um agendamento neste dia (${LABEL_TURNO[existente.turno]}). O limite é 1 turno por dia (RN05).`,
+      )
+    }
     if (mesaId) {
       const escolhida = await c.query<{ espaco: Espaco }>("SELECT espaco FROM mesa_estudo WHERE id = $1 AND ativa", [mesaId])
       if (!escolhida.rows[0]) throw new ErroRegra(404, "Mesa não encontrada.")
       if (escolhida.rows[0].espaco !== espaco) {
         throw new ErroRegra(
           409,
-          espaco === "infantil"
-            ? "Agendamento para criança só pode ser feito em mesa do espaço infantil."
-            : "As mesas do espaço infantil são para agendamentos de crianças.",
+          cr ? "Esta mesa não é do Espaço Kids. Escolha uma mesa Kids." : "Para agendar o Espaço Kids, informe os dados da criança.",
         )
       }
     }
     const livres = await mesasLivres(c, pedido.data, pedido.turno, espaco)
     if (livres.length === 0) {
-      throw new ErroRegra(409, "Todas as mesas estão ocupadas neste turno (RN09).", { ofereceFila: true })
+      throw new ErroRegra(
+        409,
+        cr ? "Todas as mesas do Espaço Kids estão ocupadas neste turno (RN09)." : "Todas as mesas estão ocupadas neste turno (RN09).",
+        { ofereceFila: true },
+      )
     }
     const alvo = mesaId ? livres.find((m) => m.id === mesaId) : livres[0]
     if (!alvo) throw new ErroRegra(409, "A mesa escolhida já está ocupada neste turno (RN09). Escolha outra.")
     await c.query(
-      `INSERT INTO agendamento (mesa_id, socio_id, data, turno, crianca_nome, crianca_idade)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [alvo.id, socioId, pedido.data, pedido.turno, pedido.crianca?.nome ?? null, pedido.crianca?.idade ?? null],
+      `INSERT INTO agendamento (mesa_id, socio_id, data, turno, crianca_nome, crianca_cpf, crianca_nascimento)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [alvo.id, socioId, pedido.data, pedido.turno, cr?.nome ?? null, cr?.cpf ?? null, cr?.dataNascimento ?? null],
     )
     return alvo
   })
-  const dataBr = pedido.data.split("-").reverse().join("/")
+  const turno = LABEL_TURNO[pedido.turno].toLowerCase()
   res.status(201).json({
     ok: true,
-    mensagem: `${mesa.nome} agendada para ${dataBr}, turno da ${LABEL_TURNO[pedido.turno].toLowerCase()}.`,
+    mensagem: cr
+      ? `${mesa.nome} agendada para ${primeiroNome(cr.nome)} em ${dataBr(pedido.data)}, turno da ${turno}. ${AVISO_TOLERANCIA}`
+      : `${mesa.nome} agendada para ${dataBr(pedido.data)}, turno da ${turno}. ${AVISO_TOLERANCIA}`,
     ...(await estadoDasMesas(pool, usuario)),
   })
 })
@@ -336,16 +416,14 @@ rotasMesas.post("/agendamentos/:id/cancelar", exigirLogin, async (req, res) => {
   const usuario = res.locals.usuario as UsuarioLogado
   const id = idDe(req, "Agendamento não encontrado.")
   const contemplados = await emTransacao(async (c) => {
-    const { rows } = await c.query<{ socio_id: string; data: string; turno: Turno; status: string; espaco: Espaco }>(
-      `SELECT a.socio_id, to_char(a.data, 'YYYY-MM-DD') AS data, a.turno, a.status, m.espaco
-         FROM agendamento a JOIN mesa_estudo m ON m.id = a.mesa_id WHERE a.id = $1`,
+    const { rows } = await c.query<{ socio_id: string; data: string; turno: Turno; espaco: Espaco }>(
+      `SELECT a.socio_id, to_char(a.data, 'YYYY-MM-DD') AS data, a.turno, m.espaco
+         FROM agendamento a JOIN mesa_estudo m ON m.id = a.mesa_id WHERE a.id = $1 AND a.status = 'confirmado'`,
       [id],
     )
     const ag = rows[0]
     if (!ag) throw new ErroRegra(404, "Agendamento não encontrado.")
-    if (usuario.perfil !== "admin" && ag.socio_id !== usuario.id) {
-      throw new ErroRegra(403, "Acesso negado: esta operação não é permitida para o seu perfil (RNF02).")
-    }
+    if (usuario.perfil !== "admin" && ag.socio_id !== usuario.id) throw new ErroRegra(403, NEGADO)
     await travarTurno(c, ag.data, ag.turno, ag.espaco)
     const { hoje, hora } = await relogio(c)
     if (ag.data < hoje || (ag.data === hoje && hora >= FIM_TURNO[ag.turno])) {
@@ -365,52 +443,114 @@ rotasMesas.post("/agendamentos/:id/cancelar", exigirLogin, async (req, res) => {
   })
 })
 
-// POST /api/fila  { socioId?, data, turno, crianca?: { nome, idade } }
+// POST /api/agendamentos/:id/uso  (US30: o funcionário confirma que o espaço está em uso)
+rotasMesas.post("/agendamentos/:id/uso", exigirAdmin, async (req, res) => {
+  const usuario = res.locals.usuario as UsuarioLogado
+  const id = idDe(req, "Agendamento não encontrado.")
+  const r = await emTransacao(async (c) => {
+    const { rows } = await c.query<{
+      socio: string
+      data: string
+      turno: Turno
+      espaco: Espaco
+      crianca_nome: string | null
+      uso_confirmado_em: Date | null
+    }>(
+      `SELECT s.nome AS socio, to_char(a.data, 'YYYY-MM-DD') AS data, a.turno, m.espaco, a.crianca_nome, a.uso_confirmado_em
+         FROM agendamento a JOIN mesa_estudo m ON m.id = a.mesa_id JOIN socio_leitor s ON s.id = a.socio_id
+        WHERE a.id = $1 AND a.status = 'confirmado'`,
+      [id],
+    )
+    const ag = rows[0]
+    if (!ag) throw new ErroRegra(404, "Agendamento não encontrado.")
+    await travarTurno(c, ag.data, ag.turno, ag.espaco)
+    if (ag.uso_confirmado_em) throw new ErroRegra(409, "O uso deste agendamento já foi confirmado.")
+    const { hoje, hora } = await relogio(c)
+    if (ag.data !== hoje) throw new ErroRegra(409, "O uso só pode ser confirmado no dia do agendamento.")
+    if (hora >= FIM_TURNO[ag.turno]) throw new ErroRegra(409, "O turno já foi encerrado.")
+    await c.query("UPDATE agendamento SET uso_confirmado_em = now() WHERE id = $1", [id])
+    // US29: com o uso do Espaço Kids confirmado, os demais da fila daquele turno saem dela
+    const retirados =
+      ag.espaco === "kids"
+        ? (
+            await c.query(
+              `UPDATE fila_espera SET status = 'retirada'
+                WHERE data = $1 AND turno = $2 AND status = 'aguardando' AND crianca_nome IS NOT NULL`,
+              [ag.data, ag.turno],
+            )
+          ).rowCount ?? 0
+        : 0
+    return { quem: primeiroNome(ag.crianca_nome ?? ag.socio), retirados }
+  })
+  res.json({
+    ok: true,
+    mensagem:
+      `Uso confirmado: ${r.quem} está no espaço.` +
+      (r.retirados > 0
+        ? ` ${r.retirados} sócio(s)-leitor(es) foram retirados da fila de espera do Espaço Kids deste turno.`
+        : ""),
+    ...(await estadoDasMesas(pool, usuario)),
+  })
+})
+
+// POST /api/fila  { socioId?, data, turno, crianca?: { nome, cpf, dataNascimento } }
 rotasMesas.post("/fila", exigirLogin, async (req, res) => {
   const usuario = res.locals.usuario as UsuarioLogado
   const corpo = corpoDe(req)
   const pedido = lerPedido(corpo)
   const socioId = socioDoPedido(corpo, usuario)
   const espaco = espacoDoPedido(pedido.crianca)
+  const cr = pedido.crianca
+  await rotinaDasMesas()
 
   const posicao = await emTransacao(async (c) => {
-    await conferirTurno(c, pedido)
-    await conferirSocio(c, socioId, pedido)
+    await conferirSocio(c, socioId, !!cr)
+    const hoje = await conferirTurno(c, pedido)
+    if (cr) await conferirCrianca(c, cr, hoje, pedido.data)
     await travarTurno(c, pedido.data, pedido.turno, espaco)
-    const conflito = await conflitoDoAgendamento(c, socioId, pedido)
-    if (conflito) throw new ErroRegra(409, conflito)
-    if ((await mesasLivres(c, pedido.data, pedido.turno, espaco)).length > 0) {
-      throw new ErroRegra(409, "Há mesas livres neste turno: faça o agendamento direto.")
-    }
-    const { rows } = await c.query<{ turno: Turno; crianca_nome: string | null }>(
-      "SELECT turno, crianca_nome FROM fila_espera WHERE socio_id = $1 AND data = $2 AND status = 'aguardando'",
-      [socioId, pedido.data],
-    )
-    const nome = pedido.crianca?.nome.toLowerCase() ?? null
-    const mesmaPessoa = rows.filter((f) => (f.crianca_nome?.toLowerCase() ?? null) === nome)
-    if (mesmaPessoa.some((f) => f.turno === pedido.turno)) {
-      throw new ErroRegra(409, pedido.crianca ? `${pedido.crianca.nome} já está na fila deste turno.` : "Você já está na fila deste turno.")
-    }
-    if (mesmaPessoa.length > 0) {
+    if (await agendamentoNoDia(c, socioId, pedido.data, cr)) {
       throw new ErroRegra(
         409,
-        pedido.crianca ? `${pedido.crianca.nome} já está na fila de outro turno neste dia.` : "Você já está na fila de outro turno neste dia (RN05).",
+        cr ? `${primeiroNome(cr.nome)} já tem agendamento no Espaço Kids neste dia (RN05).` : "Você já tem um agendamento neste dia (RN05).",
       )
     }
+    if ((await mesasLivres(c, pedido.data, pedido.turno, espaco)).length > 0) {
+      throw new ErroRegra(
+        409,
+        cr ? "Há mesas livres no Espaço Kids neste turno: faça o agendamento direto." : "Há mesas livres neste turno: faça o agendamento direto.",
+      )
+    }
+    if (cr) {
+      const naFila = await c.query(
+        "SELECT 1 FROM fila_espera WHERE crianca_cpf = $1 AND data = $2 AND status = 'aguardando'",
+        [cr.cpf, pedido.data],
+      )
+      if (naFila.rowCount) throw new ErroRegra(409, `${primeiroNome(cr.nome)} já está na fila do Espaço Kids neste dia.`)
+    } else {
+      const { rows } = await c.query<{ turno: Turno }>(
+        "SELECT turno FROM fila_espera WHERE socio_id = $1 AND data = $2 AND status = 'aguardando' AND crianca_nome IS NULL",
+        [socioId, pedido.data],
+      )
+      if (rows.some((f) => f.turno === pedido.turno)) throw new ErroRegra(409, "Você já está na fila deste turno.")
+      if (rows.length > 0) throw new ErroRegra(409, "Você já está na fila de outro turno neste dia (RN05).")
+    }
     await c.query(
-      "INSERT INTO fila_espera (socio_id, data, turno, crianca_nome, crianca_idade) VALUES ($1, $2, $3, $4, $5)",
-      [socioId, pedido.data, pedido.turno, pedido.crianca?.nome ?? null, pedido.crianca?.idade ?? null],
+      `INSERT INTO fila_espera (socio_id, data, turno, crianca_nome, crianca_cpf, crianca_nascimento)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [socioId, pedido.data, pedido.turno, cr?.nome ?? null, cr?.cpf ?? null, cr?.dataNascimento ?? null],
     )
     const total = await c.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM fila_espera
         WHERE data = $1 AND turno = $2 AND status = 'aguardando' AND (crianca_nome IS NOT NULL) = $3`,
-      [pedido.data, pedido.turno, espaco === "infantil"],
+      [pedido.data, pedido.turno, espaco === "kids"],
     )
     return total.rows[0].n
   })
   res.status(201).json({
     ok: true,
-    mensagem: `Você entrou na fila de espera na posição ${posicao}.`,
+    mensagem: cr
+      ? `${primeiroNome(cr.nome)} entrou na fila de espera do Espaço Kids na posição ${posicao}.`
+      : `Você entrou na fila de espera na posição ${posicao}.`,
     ...(await estadoDasMesas(pool, usuario)),
   })
 })
@@ -424,9 +564,7 @@ rotasMesas.post("/fila/:id/desistir", exigirLogin, async (req, res) => {
     [id],
   )
   if (!rows[0]) throw new ErroRegra(404, "Entrada não está na fila.")
-  if (usuario.perfil !== "admin" && rows[0].socio_id !== usuario.id) {
-    throw new ErroRegra(403, "Acesso negado: esta operação não é permitida para o seu perfil (RNF02).")
-  }
+  if (usuario.perfil !== "admin" && rows[0].socio_id !== usuario.id) throw new ErroRegra(403, NEGADO)
   await pool.query("UPDATE fila_espera SET status = 'desistiu' WHERE id = $1 AND status = 'aguardando'", [id])
   res.json({ ok: true, mensagem: "Você saiu da fila. As posições foram reordenadas.", ...(await estadoDasMesas(pool, usuario)) })
 })

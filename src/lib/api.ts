@@ -7,7 +7,7 @@ import type {
   ArquivoDigital,
   Agendamento,
   Autor,
-  CriancaAgendada,
+  CriancaKids,
   Desbaste,
   Emprestimo,
   Endereco,
@@ -29,7 +29,7 @@ import type { DadosDano, DadosLivro, DadosReceptor, DadosSocio } from "./store"
 
 export type RespostaApi<T> =
   | { tipo: "ok"; dados: T }
-  | { tipo: "erro"; status: number; mensagem: string; ofereceFila?: boolean }
+  | { tipo: "erro"; status: number; mensagem: string; ofereceFila?: boolean; campo?: keyof CriancaKids }
   // a API não respondeu (servidor desligado, sem rede, proxy sem destino)
   | { tipo: "indisponivel" }
 
@@ -55,13 +55,14 @@ async function chamar<T>(rota: string, init: RequestInit, tempoLimiteMs = TEMPO_
     return { tipo: "indisponivel" }
   }
 
-  const dados = corpo as { ok: boolean; mensagem?: string; ofereceFila?: boolean }
+  const dados = corpo as { ok: boolean; mensagem?: string; ofereceFila?: boolean; campo?: keyof CriancaKids }
   if (!resposta.ok || !dados.ok) {
     return {
       tipo: "erro",
       status: resposta.status,
       mensagem: dados.mensagem ?? "Erro inesperado no servidor.",
       ...(dados.ofereceFila ? { ofereceFila: true } : {}),
+      ...(dados.campo ? { campo: dados.campo } : {}),
     }
   }
   return { tipo: "ok", dados: corpo as T }
@@ -83,10 +84,10 @@ export type CadastroApi =
       rg: string
       telefone: string
       email: string
+      dataNascimento: string // "" em cadastros migrados
       endereco: Endereco
       dataCadastro: string
       consentimentoLgpd: string
-      dataNascimento?: string
     }
 
 export interface LoginApi {
@@ -115,10 +116,10 @@ export function cadastroNaApi(d: DadosSocio) {
       rg: d.rg,
       telefone: d.telefone,
       email: d.email,
+      dataNascimento: d.dataNascimento,
       endereco: d.endereco,
       senha: d.senha ?? "",
       consentimentoLgpd: d.consentimentoLgpd,
-      dataNascimento: d.dataNascimento,
     }),
   })
 }
@@ -280,11 +281,11 @@ export const salvarSocioNaApi = (token: string, d: DadosSocio, id?: string) =>
     rg: d.rg,
     telefone: d.telefone,
     email: d.email,
+    dataNascimento: d.dataNascimento,
     endereco: d.endereco,
     fotoId: d.fotoId ?? null,
     ...(id ? {} : { senha: d.senha ?? "" }),
     consentimentoLgpd: d.consentimentoLgpd,
-    dataNascimento: d.dataNascimento,
   })
 
 export const alternarAtivoSocioNaApi = (token: string, id: string) =>
@@ -308,7 +309,7 @@ export interface PedidoMesa {
   data: string
   turno: Turno
   mesaId?: string
-  crianca?: CriancaAgendada
+  crianca?: CriancaKids
 }
 
 type RespMesas = EstadoMesasApi & { mensagem: string }
@@ -324,6 +325,9 @@ export const entrarNaFilaNaApi = (token: string, p: PedidoMesa) => comToken<Resp
 
 export const desistirDaFilaNaApi = (token: string, id: string) =>
   comToken<RespMesas>(token, "POST", `/fila/${id}/desistir`, {})
+
+export const confirmarUsoNaApi = (token: string, id: string) =>
+  comToken<RespMesas>(token, "POST", `/agendamentos/${id}/uso`, {})
 
 // ---------- instituições, doações e aquisições (RF13 / RN25 / RN26) ----------
 

@@ -1,5 +1,4 @@
 import type {
-  Espaco,
   StatusExemplar,
   Categoria,
   PerfilUsuario,
@@ -10,6 +9,7 @@ import type {
   StatusReserva,
   TipoNotificacao,
   TipoMovimentacao,
+  EspacoMesa,
 } from "./types"
 
 // ============================================================
@@ -23,10 +23,10 @@ export const MULTA_DANO_SUGERIDA = 25.0 // RF15: valor sugerido, o administrador
 export const PRAZO_RESERVA_DIAS = 3 // reserva aguarda retirada por 3 dias
 export const DIAS_LEMBRETE = 3 // RF05: lembrete enviado a partir de 3 dias antes do vencimento
 export const MAX_DOACOES_PESSOA_FISICA = 1 // RN26
-export const IDADE_MINIMA_RESPONSAVEL = 16 // US28: agendamento para criança
-export const IDADE_MAXIMA_CRIANCA = 11 // US28: criança até 12 anos incompletos (ECA)
-export const MAX_CRIANCAS_POR_DIA = 3 // US28: limite por responsável
 export const MIN_JUSTIFICATIVA = 20 // RN07 / RN24: texto mínimo de uma justificativa "fundamentada"
+export const IDADE_MINIMA_SOCIO = 12 // US29: conta própria (e empréstimos) a partir dos 12 anos
+export const IDADE_MAXIMA_KIDS = 11 // US29: Espaço Kids só para crianças de até 11 anos
+export const TOLERANCIA_USO_MINUTOS = 15 // US30: sem confirmação de uso nesse prazo, a vaga é liberada
 
 // Categorias restritas (RN04 / RNF09): apenas consulta local
 export const CATEGORIAS_RESTRITAS: Categoria[] = ["exemplar_unico", "raro", "cordel"]
@@ -41,6 +41,12 @@ export const STATUS_DESBASTAVEIS: StatusExemplar[] = ["ocioso", "danificado"]
 export const EXTENSOES_IMAGEM = [".webp", ".jpg", ".jpeg", ".png"]
 export const MIMES_IMAGEM = ["image/webp", "image/jpeg", "image/png"]
 export const ACCEPT_IMAGEM = ".webp,.jpg,.jpeg,.png,image/webp,image/jpeg,image/png"
+
+// Limites de tamanho do arquivo escolhido (iteração 3, T12). O servidor confere o
+// conteúdo já comprimido: PDF até 15 MB, imagem até 5 MB (server/src/arquivos.ts).
+// A imagem escolhida pode ser maior, porque é reduzida para WEBP antes do envio.
+export const LIMITE_PDF_MB = 15
+export const LIMITE_IMAGEM_ORIGINAL_MB = 25
 
 export const LETRAS_SECAO = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("") // RN22
 
@@ -99,15 +105,15 @@ export const labelTurno: Record<Turno, string> = {
   noite: "Noite",
 }
 
-export const labelEspaco: Record<Espaco, string> = {
-  estudo: "Mesas de estudo",
-  infantil: "Espaço infantil",
-}
-
 export const horarioTurno: Record<Turno, string> = {
   manha: "08h às 12h",
   tarde: "13h às 17h",
   noite: "18h às 21h",
+}
+
+export const labelEspaco: Record<EspacoMesa, string> = {
+  estudo: "Mesas de estudo",
+  kids: "Espaço Kids",
 }
 
 export const labelMulta: Record<StatusMulta, string> = {

@@ -7,7 +7,9 @@
 // ============================================================
 import { useEffect, useState } from "react"
 import type { Compressao } from "./types"
-import { imagemValida, pdfValido } from "./constants"
+import { LIMITE_IMAGEM_ORIGINAL_MB, LIMITE_PDF_MB, imagemValida, pdfValido } from "./constants"
+
+const MB = 1024 * 1024
 import { uuid } from "./utils"
 import { carregarSessao } from "./persistencia"
 import { apagarArquivoNaApi, enviarArquivoNaApi, type DestinoArquivo } from "./api"
@@ -182,6 +184,9 @@ export async function armazenarImagem(
   if (!imagemValida(info)) {
     throw new Error("Formato de imagem não permitido. Envie apenas WEBP, JPG ou PNG (RNF12).")
   }
+  if (arquivo.size > LIMITE_IMAGEM_ORIGINAL_MB * MB) {
+    throw new Error(`Imagem grande demais: escolha um arquivo de até ${LIMITE_IMAGEM_ORIGINAL_MB} MB.`)
+  }
   let blob: Blob = arquivo
   let compressao: Compressao = "nenhuma"
   try {
@@ -210,9 +215,17 @@ export async function armazenarPdf(
 ): Promise<ArquivoArmazenado> {
   const info = { name: nome ?? (arquivo as File).name ?? "documento.pdf", type: arquivo.type }
   if (!pdfValido(info)) {
-    throw new Error("O arquivo precisa ser um PDF.")
+    throw new Error("Formato não permitido: o arquivo precisa ser um PDF (.pdf).")
+  }
+  // a assinatura confere com o tipo: um arquivo renomeado para .pdf é recusado aqui, antes do envio
+  const cabecalho = new Uint8Array(await arquivo.slice(0, 5).arrayBuffer())
+  if (String.fromCharCode(...cabecalho) !== "%PDF-") {
+    throw new Error("O arquivo escolhido não é um PDF válido.")
   }
   const comprimido = await gzip(arquivo)
+  if (Math.min(comprimido.size, arquivo.size) > LIMITE_PDF_MB * MB) {
+    throw new Error(`PDF grande demais: o limite é ${LIMITE_PDF_MB} MB (depois da compressão).`)
+  }
   const usarGzip = comprimido.size < arquivo.size
   const blob = usarGzip ? comprimido : arquivo
   const compressao: Compressao = usarGzip ? "gzip" : "nenhuma"
@@ -249,9 +262,12 @@ export function aguardarAntesDeLer(p: Promise<unknown>) {
 export function useArquivoUrl(id: string | undefined | null): {
   url: string | null
   carregando: boolean
+  /** lê de novo (ex.: o servidor estava fora do ar) */
+  recarregar: () => void
 } {
   const [url, setUrl] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  const [tentativa, setTentativa] = useState(0)
 
   useEffect(() => {
     if (!id) {
@@ -278,7 +294,7 @@ export function useArquivoUrl(id: string | undefined | null): {
       ativo = false
       if (criada) URL.revokeObjectURL(criada)
     }
-  }, [id])
+  }, [id, tentativa])
 
-  return { url, carregando }
+  return { url, carregando, recarregar: () => setTentativa((t) => t + 1) }
 }

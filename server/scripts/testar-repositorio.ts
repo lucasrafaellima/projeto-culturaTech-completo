@@ -72,6 +72,14 @@ conferir("compressão incompatível: 400", compErrada.status === 400, compErrada
 const vazio = await enviar(Buffer.alloc(0), "application/pdf", admin)
 conferir("arquivo vazio: 400", vazio.status === 400, vazio.corpo)
 
+// ---------- limites de tamanho (T12) ----------
+const pngGrande = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(5 * 1024 * 1024)])
+const imgGrande = await enviar(pngGrande, "image/png", admin, { "X-Destino": "documentos" })
+conferir("imagem acima de 5 MB: 413", imgGrande.status === 413 && /5 MB/.test(imgGrande.corpo.mensagem), imgGrande.corpo)
+const pdfGrande = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(15 * 1024 * 1024)])
+const grande = await enviar(pdfGrande, "application/pdf", admin)
+conferir("PDF acima de 15 MB: 413 com mensagem", grande.status === 413 && /15 MB/.test(grande.corpo.mensagem), grande.corpo)
+
 const upPdf = await enviar(pdf, "application/pdf", admin)
 conferir(
   "upload de PDF: 201 com nome e tamanho",
@@ -189,8 +197,8 @@ const cpf = (() => {
   return n.join("")
 })()
 const socio = await chamar("POST", "/socios", {
-  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`,
-  endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, senha: "senha-teste", consentimentoLgpd: true, dataNascimento: "1990-01-01",
+  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`, dataNascimento: "1992-04-10",
+  endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, senha: "senha-teste", consentimentoLgpd: true,
   fotoId: foto.corpo.arquivo.id,
 }, admin)
 conferir("sócio cadastrado com foto", socio.status === 201 && socio.corpo.socio.fotoId === foto.corpo.arquivo.id, socio.corpo)
@@ -202,7 +210,7 @@ conferir("foto em uso não é apagada", (await chamar("DELETE", `/arquivos/${fot
 conferir("foto gravada na pasta socios/", (await chaveDe(foto.corpo.arquivo.id))?.startsWith("socios/") === true, await chaveDe(foto.corpo.arquivo.id))
 const fotoDoMural = await enviar(png, "image/png", admin, { "X-Destino": "mural" })
 const comFotoErrada = await chamar("PUT", `/socios/${socio.corpo.socio.id}`, {
-  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`,
+  nome: `Foto Teste ${sufixo}`, cpf, rg: "", telefone: "82999990000", email: `foto.${sufixo.toLowerCase()}@example.com`, dataNascimento: "1992-04-10",
   endereco: { rua: "Rua A", numero: "1", bairro: "Centro", cep: "57300000" }, consentimentoLgpd: true,
   fotoId: fotoDoMural.corpo.arquivo.id,
 }, admin)

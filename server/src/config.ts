@@ -50,10 +50,23 @@ function lerArmazenamento() {
   }
 }
 
+// Relógio dos turnos das mesas (o RDS roda em UTC). O valor entra em SQL, então só nomes IANA válidos.
+function lerFusoHorario() {
+  const fuso = process.env.FUSO_HORARIO?.trim() || "America/Maceio"
+  try {
+    if (!/^[A-Za-z0-9_+\-/]+$/.test(fuso)) throw new Error()
+    new Intl.DateTimeFormat("pt-BR", { timeZone: fuso })
+  } catch {
+    throw new Error(`FUSO_HORARIO inválido: ${fuso}. Use um nome como America/Maceio.`)
+  }
+  return fuso
+}
+
 export const config = {
   porta: Number(process.env.PORT ?? 3333),
   ssl: lerSsl(),
   jwtSecret,
   jwtExpiraEm: (process.env.JWT_EXPIRA_EM ?? "8h") as `${number}h`,
   armazenamento: lerArmazenamento(),
+  fusoHorario: lerFusoHorario(),
 }

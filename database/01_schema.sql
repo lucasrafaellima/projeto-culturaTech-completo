@@ -64,6 +64,8 @@ CREATE TABLE socio_leitor (
     rg                  VARCHAR(20),
     telefone            VARCHAR(20),
     email               VARCHAR(254),
+    -- US29: conta própria a partir dos 12 anos (validado pela API); nula em cadastros migrados
+    data_nascimento     DATE,
     foto_arquivo_id     UUID REFERENCES arquivo (id) ON DELETE SET NULL,
     endereco_rua        VARCHAR(150),
     endereco_numero     VARCHAR(10),
@@ -74,8 +76,6 @@ CREATE TABLE socio_leitor (
     data_cadastro       DATE NOT NULL DEFAULT CURRENT_DATE,
     consentimento_lgpd  DATE, -- RNF06: nulo = pendente (cadastro migrado)
     anonimizado         BOOLEAN NOT NULL DEFAULT FALSE,
-    -- US28: confere a idade de quem agenda para uma criança; nula em cadastros antigos e após a anonimização
-    data_nascimento     DATE CHECK (data_nascimento >= DATE '1900-01-01'),
     CONSTRAINT ck_socio_identificado CHECK (anonimizado OR cpf IS NOT NULL)
 );
 CREATE UNIQUE INDEX ux_socio_cpf ON socio_leitor (cpf) WHERE cpf IS NOT NULL;
@@ -267,7 +267,7 @@ CREATE TABLE notificacao (
 CREATE INDEX ix_notificacao_falha ON notificacao (data) WHERE status = 'falha' AND tratada_em IS NULL;
 
 -- ------------------------------------------------------------
--- Mesas de estudo (RF10 / RF11)
+-- Mesas de estudo (RF10 / RF11), Espaço Kids (US29) e confirmação de uso (US30)
 -- Turnos: manhã 08h-12h, tarde 13h-17h, noite 18h-21h
 -- ------------------------------------------------------------
 CREATE TABLE mesa_estudo (
@@ -275,8 +275,8 @@ CREATE TABLE mesa_estudo (
     nome   VARCHAR(60) NOT NULL UNIQUE,
     local  VARCHAR(120) NOT NULL,
     ativa  BOOLEAN NOT NULL DEFAULT TRUE,
-    -- US28: mesa de estudo ou do espaço infantil
-    espaco VARCHAR(8) NOT NULL DEFAULT 'estudo' CHECK (espaco IN ('estudo', 'infantil'))
+    -- US29: mesa de estudo ou do Espaço Kids
+    espaco VARCHAR(8) NOT NULL DEFAULT 'estudo' CHECK (espaco IN ('estudo', 'kids'))
 );
 
 CREATE TABLE agendamento (
@@ -285,24 +285,28 @@ CREATE TABLE agendamento (
     socio_id   UUID NOT NULL REFERENCES socio_leitor (id),
     data       DATE NOT NULL,
     turno      VARCHAR(5) NOT NULL CHECK (turno IN ('manha', 'tarde', 'noite')),
-    status     VARCHAR(10) NOT NULL DEFAULT 'confirmado' CHECK (status IN ('confirmado', 'cancelado')),
+    -- US30: nao_compareceu = uso não confirmado dentro da tolerância; a vaga foi liberada
+    status     VARCHAR(14) NOT NULL DEFAULT 'confirmado'
+               CHECK (status IN ('confirmado', 'cancelado', 'nao_compareceu')),
     origem     VARCHAR(6) NOT NULL DEFAULT 'direto' CHECK (origem IN ('direto', 'fila')),
     criado_em  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- US28: preenchido quando o agendamento é para uma criança sob responsabilidade do sócio.
-    -- Na anonimização o nome vira um código e a idade fica nula.
-    crianca_nome   VARCHAR(150),
-    crianca_idade  SMALLINT,
+    uso_confirmado_em   TIMESTAMPTZ, -- US30: o funcionário confirmou que o espaço está em uso
+    -- US29: criança de até 11 anos, sem cadastro, no Espaço Kids; socio_id é o responsável.
+    -- Na anonimização do responsável, o nome vira um código e CPF e nascimento ficam nulos.
+    crianca_nome        VARCHAR(150),
+    crianca_cpf         CHAR(11) CHECK (crianca_cpf ~ '^[0-9]{11}$'),
+    crianca_nascimento  DATE,
     CONSTRAINT ck_agendamento_crianca CHECK (
-        crianca_idade IS NULL OR (crianca_nome IS NOT NULL AND crianca_idade BETWEEN 0 AND 11))
+        (crianca_cpf IS NULL) = (crianca_nascimento IS NULL) AND (crianca_cpf IS NULL OR crianca_nome IS NOT NULL))
 );
 -- uma mesa por turno
 CREATE UNIQUE INDEX ux_agendamento_mesa_turno ON agendamento (mesa_id, data, turno) WHERE status = 'confirmado';
 -- RN05: um agendamento próprio confirmado por sócio por dia; o de criança não entra neste limite
 CREATE UNIQUE INDEX ux_agendamento_socio_dia ON agendamento (socio_id, data)
     WHERE status = 'confirmado' AND crianca_nome IS NULL;
--- US28: um agendamento confirmado por criança por dia
-CREATE UNIQUE INDEX ux_agendamento_crianca_dia ON agendamento (socio_id, data, lower(crianca_nome))
-    WHERE status = 'confirmado' AND crianca_nome IS NOT NULL;
+-- RN05 aplicada à criança do Espaço Kids: um turno por dia
+CREATE UNIQUE INDEX ux_agendamento_crianca_dia ON agendamento (crianca_cpf, data)
+    WHERE status = 'confirmado' AND crianca_cpf IS NOT NULL;
 
 -- Fila de espera (RF11): a ordem é dada por criado_em
 CREATE TABLE fila_espera (
@@ -311,17 +315,19 @@ CREATE TABLE fila_espera (
     data            DATE NOT NULL,
     turno           VARCHAR(5) NOT NULL CHECK (turno IN ('manha', 'tarde', 'noite')),
     criado_em       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- retirada: o uso do Espaço Kids foi confirmado e a fila do turno foi encerrada (US29)
     status          VARCHAR(12) NOT NULL DEFAULT 'aguardando'
-                    CHECK (status IN ('aguardando', 'contemplado', 'desistiu', 'expirada')),
+                    CHECK (status IN ('aguardando', 'contemplado', 'desistiu', 'expirada', 'retirada')),
     agendamento_id  UUID UNIQUE REFERENCES agendamento (id),
-    -- US28: com criança, a entrada é da fila do espaço infantil
-    crianca_nome    VARCHAR(150),
-    crianca_idade   SMALLINT,
+    -- US29: com criança, a entrada é da fila do Espaço Kids
+    crianca_nome        VARCHAR(150),
+    crianca_cpf         CHAR(11) CHECK (crianca_cpf ~ '^[0-9]{11}$'),
+    crianca_nascimento  DATE,
     CONSTRAINT ck_fila_contemplado CHECK ((status = 'contemplado') = (agendamento_id IS NOT NULL)),
     CONSTRAINT ck_fila_crianca CHECK (
-        crianca_idade IS NULL OR (crianca_nome IS NOT NULL AND crianca_idade BETWEEN 0 AND 11))
+        (crianca_cpf IS NULL) = (crianca_nascimento IS NULL) AND (crianca_cpf IS NULL OR crianca_nome IS NOT NULL))
 );
-CREATE UNIQUE INDEX ux_fila_socio_turno ON fila_espera (socio_id, data, turno, lower(COALESCE(crianca_nome, '')))
+CREATE UNIQUE INDEX ux_fila_socio_turno ON fila_espera (socio_id, data, turno, COALESCE(crianca_cpf, ''))
     WHERE status = 'aguardando';
 CREATE INDEX ix_fila_ordem ON fila_espera (data, turno, criado_em) WHERE status = 'aguardando';
 
@@ -394,6 +400,7 @@ CREATE TABLE publicacao (
     admin_id   UUID REFERENCES administrador (id)
 );
 CREATE INDEX ix_publicacao_data ON publicacao (data DESC);
+CREATE INDEX ix_publicacao_tipo_data ON publicacao (tipo, data DESC); -- filtro por tipo do mural público
 
 CREATE TABLE publicacao_imagem (
     publicacao_id  UUID NOT NULL REFERENCES publicacao (id) ON DELETE CASCADE,

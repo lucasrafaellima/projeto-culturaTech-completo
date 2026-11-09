@@ -31,7 +31,7 @@ import {
 import { ImagemArmazenada, SeletorImagens } from "@/components/arquivos"
 import { TabelaHistorico, BadgeReserva } from "@/components/historico"
 import { BadgeMulta, descricaoMulta } from "@/components/multas"
-import { MAX_EXEMPLARES_SIMULTANEOS } from "@/lib/constants"
+import { IDADE_MINIMA_SOCIO, MAX_EXEMPLARES_SIMULTANEOS } from "@/lib/constants"
 import { navegar } from "@/lib/navigation"
 import {
   formatCep,
@@ -39,7 +39,7 @@ import {
   formatCurrency,
   formatDate,
   formatTelefone,
-  hojeISO,
+  idade,
   mascararCpf,
   normalizar,
   somenteDigitos,
@@ -52,11 +52,11 @@ const formVazio = (): DadosSocio => ({
   rg: "",
   telefone: "",
   email: "",
+  dataNascimento: "",
   endereco: { rua: "", numero: "", bairro: "", cep: "" },
   fotoId: undefined,
   senha: "",
   consentimentoLgpd: false,
-  dataNascimento: "",
 })
 
 export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
@@ -96,10 +96,10 @@ export function SociosPage({ socioInicial }: { socioInicial: string | null }) {
         rg: s.rg,
         telefone: formatTelefone(s.telefone),
         email: s.email,
+        dataNascimento: s.dataNascimento ?? "",
         endereco: { ...s.endereco, cep: formatCep(s.endereco.cep) },
         fotoId: s.fotoId,
         consentimentoLgpd: !!s.consentimentoLgpd,
-        dataNascimento: s.dataNascimento ?? "",
       },
     })
   }
@@ -325,7 +325,8 @@ function FichaSocio({
   onSenha: () => void
   onAnonimizar: () => void
 }) {
-  const { historicoDoSocio, reservasDoSocio, multas, debitos, tituloDoExemplar, alternarAtivoSocio, motivoBloqueio } = useStore()
+  const { historicoDoSocio, reservasDoSocio, multas, debitos, tituloDoExemplar, alternarAtivoSocio, motivoBloqueio, hoje } =
+    useStore()
   const executar = useAcao()
   const historico = historicoDoSocio(socio.id) ?? []
   const reservas = reservasDoSocio(socio.id) ?? []
@@ -348,6 +349,10 @@ function FichaSocio({
         />
         <div className="grid flex-1 grid-cols-2 gap-3 text-sm sm:grid-cols-3">
           <Info rotulo="CPF" valor={socio.cpf ? formatCpf(socio.cpf) : "-"} />
+          <Info
+            rotulo="Nascimento"
+            valor={socio.dataNascimento ? `${formatDate(socio.dataNascimento)} (${idade(socio.dataNascimento, hoje)} anos)` : "-"}
+          />
           <Info rotulo="RG" valor={socio.rg || "-"} />
           <Info rotulo="Telefone" valor={socio.telefone ? formatTelefone(socio.telefone) : "-"} />
           <Info rotulo="E-mail" valor={socio.email || "não informado"} />
@@ -356,7 +361,6 @@ function FichaSocio({
             valor={socio.endereco.rua ? `${socio.endereco.rua}, ${socio.endereco.numero} - ${socio.endereco.bairro}` : "-"}
           />
           <Info rotulo="CEP" valor={socio.endereco.cep ? formatCep(socio.endereco.cep) : "-"} />
-          <Info rotulo="Nascimento" valor={socio.dataNascimento ? formatDate(socio.dataNascimento) : "-"} />
           <Info rotulo="Cadastro" valor={formatDate(socio.dataCadastro)} />
           <Info rotulo="Consentimento LGPD" valor={socio.consentimentoLgpd ? formatDate(socio.consentimentoLgpd) : "pendente"} />
         </div>
@@ -382,6 +386,9 @@ function FichaSocio({
 
       {!socio.consentimentoLgpd && !socio.anonimizado && (
         <Aviso tipo="alerta">Cadastro migrado sem consentimento registrado. Edite o cadastro e registre o consentimento.</Aviso>
+      )}
+      {!socio.dataNascimento && !socio.anonimizado && (
+        <Aviso tipo="alerta">Cadastro sem data de nascimento. Edite o cadastro e informe a data (conta a partir dos 12 anos).</Aviso>
       )}
       {motivo && <Aviso tipo="erro">Bloqueado para novos empréstimos: {motivo} (RN08).</Aviso>}
 
@@ -441,6 +448,7 @@ function FormSocio({
   onCancelar: () => void
   onSalvar: () => void
 }) {
+  const { hoje } = useStore()
   const set = <K extends keyof DadosSocio>(k: K, v: DadosSocio[K]) => onChange({ ...form, [k]: v })
   const setEnd = (k: keyof DadosSocio["endereco"], v: string) => onChange({ ...form, endereco: { ...form.endereco, [k]: v } })
 
@@ -464,6 +472,11 @@ function FormSocio({
           <Campo rotulo="CPF">
             {(id) => <Input id={id} inputMode="numeric" value={form.cpf} onChange={(e) => set("cpf", formatCpf(e.target.value))} placeholder="000.000.000-00" />}
           </Campo>
+          <Campo rotulo="Data de nascimento" dica={`Cadastro a partir dos ${IDADE_MINIMA_SOCIO} anos.`}>
+            {(id) => (
+              <Input id={id} type="date" max={hoje} value={form.dataNascimento} onChange={(e) => set("dataNascimento", e.target.value)} />
+            )}
+          </Campo>
           <Campo rotulo="RG" opcional>
             {(id) => <Input id={id} value={form.rg} onChange={(e) => set("rg", e.target.value)} />}
           </Campo>
@@ -472,9 +485,6 @@ function FormSocio({
           </Campo>
           <Campo rotulo="E-mail" dica="Usado para os avisos de prazo de devolução (RF05).">
             {(id) => <Input id={id} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />}
-          </Campo>
-          <Campo rotulo="Data de nascimento" opcional={!novo} dica="Exigida para agendar o espaço infantil para uma criança.">
-            {(id) => <Input id={id} type="date" max={hojeISO()} value={form.dataNascimento ?? ""} onChange={(e) => set("dataNascimento", e.target.value)} />}
           </Campo>
         </div>
       </div>

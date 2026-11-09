@@ -28,6 +28,34 @@ export function cpfValido(valor: string): boolean {
 
 const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "")
 
+// US29: conta própria a partir dos 12 anos (mesma regra de validarNascimentoSocio no front-end)
+export const IDADE_MINIMA_SOCIO = 12
+
+const hojeLocal = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+function idade(nascimento: string, ref: string): number {
+  const [an, mn, dn] = nascimento.split("-").map(Number)
+  const [ar, mr, dr] = ref.split("-").map(Number)
+  return ar - an - (mr < mn || (mr === mn && dr < dn) ? 1 : 0)
+}
+
+function erroNascimento(data: string): string | null {
+  const [a, m, d] = data.split("-").map(Number)
+  const valida = /^\d{4}-\d{2}-\d{2}$/.test(data) && new Date(Date.UTC(a, m - 1, d)).toISOString().slice(0, 10) === data
+  if (!valida) return "Informe a data de nascimento."
+  const hoje = hojeLocal()
+  if (data > hoje) return "A data de nascimento não pode estar no futuro."
+  const anos = idade(data, hoje)
+  if (anos > 120) return "Data de nascimento inválida. Confira o ano."
+  if (anos < IDADE_MINIMA_SOCIO) {
+    return `O cadastro de sócio-leitor é permitido a partir dos ${IDADE_MINIMA_SOCIO} anos. Crianças de até 11 anos usam o Espaço Kids pelo agendamento de um sócio-leitor responsável.`
+  }
+  return null
+}
+
 export function validarSenha(senha: string): string | null {
   if (senha.length < 6) return "A senha deve ter ao menos 6 caracteres."
   if (Buffer.byteLength(senha) > 72) return "A senha deve ter no máximo 72 caracteres."
@@ -41,24 +69,15 @@ export interface DadosCadastro {
   rg: string
   telefone: string
   email: string
+  dataNascimento: string // AAAA-MM-DD
   rua: string
   numero: string
   bairro: string
   cep: string
   senha: string
-  dataNascimento: string | null
 }
 
-function erroDaNascimento(data: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T00:00:00Z`))) {
-    return "Data de nascimento inválida."
-  }
-  if (data < "1900-01-01" || data > new Date().toISOString().slice(0, 10)) return "Data de nascimento inválida."
-  return null
-}
-
-// exigirSenha: false na edição feita pelo administrador (a senha não muda ali e a data de
-// nascimento pode seguir vazia em cadastros antigos)
+// exigirSenha: false na edição feita pelo administrador (a senha não muda ali)
 export function validarDadosSocio(
   corpo: Record<string, unknown>,
   { exigirSenha = true } = {},
@@ -71,17 +90,19 @@ export function validarDadosSocio(
     rg: texto(corpo.rg),
     telefone: somenteDigitos(texto(corpo.telefone)),
     email: texto(corpo.email).toLowerCase(),
+    dataNascimento: texto(corpo.dataNascimento),
     rua: texto(endereco.rua),
     numero: texto(endereco.numero),
     bairro: texto(endereco.bairro),
     cep: somenteDigitos(texto(endereco.cep)),
     senha,
-    dataNascimento: texto(corpo.dataNascimento) || null,
   }
 
   if (d.nome.split(" ").length < 2) return { erro: "Informe o nome completo." }
   if (d.nome.length > 150) return { erro: "Nome muito longo (máximo de 150 caracteres)." }
   if (!cpfValido(d.cpf)) return { erro: "CPF inválido." }
+  const nascimento = erroNascimento(d.dataNascimento)
+  if (nascimento) return { erro: nascimento }
   if (d.rg.length > 20) return { erro: "RG muito longo (máximo de 20 caracteres)." }
   if (d.telefone.length !== 10 && d.telefone.length !== 11) return { erro: "Telefone inválido. Use DDD + número." }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.email) || d.email.length > 254) return { erro: "E-mail inválido." }
@@ -90,12 +111,6 @@ export function validarDadosSocio(
     return { erro: "Endereço muito longo (rua até 150, número até 10 e bairro até 80 caracteres)." }
   }
   if (d.cep.length !== 8) return { erro: "CEP inválido." }
-  if (d.dataNascimento) {
-    const erroNascimento = erroDaNascimento(d.dataNascimento)
-    if (erroNascimento) return { erro: erroNascimento }
-  } else if (exigirSenha) {
-    return { erro: "Informe a data de nascimento." }
-  }
   if (exigirSenha) {
     const erroSenha = validarSenha(senha)
     if (erroSenha) return { erro: erroSenha }
@@ -120,11 +135,11 @@ export async function cadastrarSocio(corpo: unknown): Promise<ResultadoCadastro>
   const senhaHash = await bcrypt.hash(d.senha, 10)
   try {
     const { rows } = await pool.query<ColunasCadastroSocio & { id: string; nome: string }>(
-      `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, endereco_rua, endereco_numero,
-                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd, data_nascimento)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE, $11)
+      `INSERT INTO socio_leitor (nome, cpf, rg, telefone, email, data_nascimento, endereco_rua, endereco_numero,
+                                 endereco_bairro, endereco_cep, senha_hash, consentimento_lgpd)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE)
        RETURNING id, nome, ${COLUNAS_CADASTRO_SOCIO}`,
-      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, d.rua, d.numero, d.bairro, d.cep, senhaHash, d.dataNascimento],
+      [d.nome, d.cpf, d.rg || null, d.telefone, d.email, d.dataNascimento, d.rua, d.numero, d.bairro, d.cep, senhaHash],
     )
     const usuario: UsuarioLogado = { id: rows[0].id, nome: rows[0].nome, perfil: "socio", pendencias: false }
     return {

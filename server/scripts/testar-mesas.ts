@@ -1,4 +1,4 @@
-// Testa as rotas de mesas de estudo, fila de espera e espaço infantil (RF10 / RF11 / US28).
+// Testa as rotas de mesas de estudo, fila de espera, Espaço Kids e confirmação de uso (RF10 / RF11 / US29 / US30).
 // Uso: com a API rodando (npm run dev), execute npm run testar-mesas
 // Atenção: grava no banco. Cria sócios de teste e os apaga ao final, com seus agendamentos.
 // Usa as mesmas variáveis PG* da API (server/.env).
@@ -42,8 +42,11 @@ function cpfAleatorio(): string {
   return n.join("")
 }
 
-const hojeLocal = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Maceio" }).format(new Date())
-const horaLocal = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Maceio", hour: "numeric", hourCycle: "h23" }).format(new Date()))
+// mesmo fuso da API (FUSO_HORARIO); para testar a US30 fora do horário dos turnos, rode a API e este
+// script com um fuso em que algum turno esteja aberto agora
+const FUSO = process.env.FUSO_HORARIO?.trim() || "America/Maceio"
+const hojeLocal = new Intl.DateTimeFormat("en-CA", { timeZone: FUSO }).format(new Date())
+const horaLocal = Number(new Intl.DateTimeFormat("en-GB", { timeZone: FUSO, hour: "numeric", hourCycle: "h23" }).format(new Date()))
 const hojeMais = (dias: number) => {
   const d = new Date(`${hojeLocal}T12:00:00Z`)
   d.setUTCDate(d.getUTCDate() + dias)
@@ -54,7 +57,7 @@ const sufixo = Date.now().toString(36).toUpperCase()
 const admin = await entrar("admin", "admin123")
 const criados: string[] = []
 
-async function novoSocio(apelido: string, dataNascimento: string | null = "1990-05-20") {
+async function novoSocio(apelido: string) {
   const cpf = cpfAleatorio()
   const r = await chamar(
     "POST",
@@ -68,14 +71,13 @@ async function novoSocio(apelido: string, dataNascimento: string | null = "1990-
       endereco: { rua: "Rua do Teste", numero: "1", bairro: "Centro", cep: "57300000" },
       senha: "senha-teste",
       consentimentoLgpd: true,
-      dataNascimento: dataNascimento ?? "1990-05-20",
+      dataNascimento: "1990-05-20",
     },
     admin,
   )
   if (r.status !== 201) throw new Error(`Cadastro de ${apelido} falhou: ${JSON.stringify(r.corpo)}`)
   const id = r.corpo.socio.id as string
   criados.push(id)
-  if (dataNascimento === null) await pool.query("UPDATE culturatech.socio_leitor SET data_nascimento = NULL WHERE id = $1", [id])
   return { id, token: await entrar(cpf, "senha-teste") }
 }
 
@@ -84,8 +86,6 @@ const beto = await novoSocio("Beto")
 const caio = await novoSocio("Caio")
 const dani = await novoSocio("Dani")
 const eva = await novoSocio("Eva")
-const menor = await novoSocio("Menor", hojeMais(-365 * 15))
-const semData = await novoSocio("Semdata", null)
 
 const agendar = (corpo: unknown, t: string) => chamar("POST", "/agendamentos", corpo, t)
 const naFila = (corpo: unknown, t: string) => chamar("POST", "/fila", corpo, t)
@@ -96,8 +96,8 @@ conferir("POST /agendamentos sem token: 401", (await chamar("POST", "/agendament
 const mesas = await chamar("GET", "/mesas", undefined, ana.token)
 conferir("GET /mesas de sócio", mesas.status === 200 && Array.isArray(mesas.corpo.mesas), mesas.corpo)
 const estudo = (mesas.corpo.mesas as { id: string; espaco: string }[]).filter((m) => m.espaco === "estudo")
-const infantil = (mesas.corpo.mesas as { id: string; espaco: string }[]).filter((m) => m.espaco === "infantil")
-conferir("há mesas de estudo e infantis", estudo.length > 0 && infantil.length > 0, mesas.corpo.mesas)
+const kids = (mesas.corpo.mesas as { id: string; espaco: string }[]).filter((m) => m.espaco === "kids")
+conferir("há mesas de estudo e do Espaço Kids", estudo.length > 0 && kids.length > 0, mesas.corpo.mesas)
 
 // ---------- datas e turnos ----------
 const D = hojeMais(10)
@@ -204,91 +204,175 @@ await chamar("GET", "/mesas", undefined, admin)
 const expirada = await pool.query("SELECT status FROM culturatech.fila_espera WHERE socio_id = $1 AND data = $2", [dani.id, hojeMais(-1)])
 conferir("fila de turno encerrado expira", expirada.rows[0]?.status === "expirada", expirada.rows)
 
-// ---------- US28: espaço infantil ----------
+// ---------- US29: Espaço Kids ----------
 const I = hojeMais(15)
-const crianca = (nome: string, idade = 6) => ({ nome, idade })
-const semNascimento = await agendar({ data: I, turno: "manha", crianca: crianca("Bia") }, semData.token)
-conferir("sem data de nascimento: 409", semNascimento.status === 409 && semNascimento.corpo.mensagem.includes("data de nascimento"), semNascimento.corpo)
-const menorDe16 = await agendar({ data: I, turno: "manha", crianca: crianca("Bia") }, menor.token)
-conferir("menor de 16: 409", menorDe16.status === 409 && menorDe16.corpo.mensagem.includes("16 anos"), menorDe16.corpo)
-conferir("menor de 16 agenda para si", (await agendar({ data: I, turno: "manha" }, menor.token)).status === 201)
-conferir("idade inválida da criança: 400", (await agendar({ data: I, turno: "tarde", crianca: crianca("Bia", 12) }, eva.token)).status === 400)
-conferir("criança sem nome: 400", (await agendar({ data: I, turno: "tarde", crianca: { nome: " ", idade: 5 } }, eva.token)).status === 400)
-const criancaEmEstudo = await agendar({ data: I, turno: "tarde", mesaId: estudo[0].id, crianca: crianca("Bia") }, eva.token)
-conferir("criança em mesa de estudo: 409", criancaEmEstudo.status === 409 && criancaEmEstudo.corpo.mensagem.includes("espaço infantil"), criancaEmEstudo.corpo)
-const adultoEmInfantil = await agendar({ data: I, turno: "tarde", mesaId: infantil[0].id }, eva.token)
-conferir("adulto em mesa infantil: 409", adultoEmInfantil.status === 409 && adultoEmInfantil.corpo.mensagem.includes("espaço infantil"), adultoEmInfantil.corpo)
+let cpfsCriancas = 0
+const crianca = (nome: string, anos = 6) => {
+  cpfsCriancas++
+  return { nome, cpf: cpfAleatorio(), dataNascimento: hojeMais(-365 * anos - 30) }
+}
+const bia = crianca("Bia Souza")
+
+const nomeCurto = await agendar({ data: I, turno: "manha", crianca: { ...bia, nome: "Bia" } }, eva.token)
+conferir("nome incompleto da criança: 400", nomeCurto.status === 400 && nomeCurto.corpo.campo === "nome", nomeCurto.corpo)
+const cpfRuim = await agendar({ data: I, turno: "manha", crianca: { ...bia, cpf: "12345678900" } }, eva.token)
+conferir("CPF inválido da criança: 400", cpfRuim.status === 400 && cpfRuim.corpo.campo === "cpf", cpfRuim.corpo)
+const cpfDeSocio = await agendar({ data: I, turno: "manha", crianca: { ...bia, cpf: "15350946056" } }, eva.token)
+conferir("CPF de sócio cadastrado: 409", cpfDeSocio.status === 409 && cpfDeSocio.corpo.mensagem.includes("sócio-leitor cadastrado"), cpfDeSocio.corpo)
+const futura = await agendar({ data: I, turno: "manha", crianca: { ...bia, dataNascimento: hojeMais(10) } }, eva.token)
+conferir("nascimento no futuro: 400", futura.status === 400 && futura.corpo.campo === "dataNascimento", futura.corpo)
+const doze = await agendar({ data: I, turno: "manha", crianca: crianca("Caio Grande", 12) }, eva.token)
+conferir("criança com 12 anos: 409", doze.status === 409 && doze.corpo.mensagem.includes("até 11 anos"), doze.corpo)
+const criancaEmEstudo = await agendar({ data: I, turno: "tarde", mesaId: estudo[0].id, crianca: bia }, eva.token)
+conferir("criança em mesa de estudo: 409", criancaEmEstudo.status === 409 && criancaEmEstudo.corpo.mensagem.includes("não é do Espaço Kids"), criancaEmEstudo.corpo)
+const adultoEmKids = await agendar({ data: I, turno: "tarde", mesaId: kids[0].id }, eva.token)
+conferir("adulto em mesa Kids: 409", adultoEmKids.status === 409 && adultoEmKids.corpo.mensagem.includes("dados da criança"), adultoEmKids.corpo)
 
 const proprio = await agendar({ data: I, turno: "manha" }, eva.token)
-conferir("agendamento próprio de manhã", proprio.status === 201, proprio.corpo)
-const mesmoTurno = await agendar({ data: I, turno: "manha", crianca: crianca("Bia") }, eva.token)
-conferir("criança no mesmo turno do responsável: 409", mesmoTurno.status === 409 && mesmoTurno.corpo.mensagem.includes("mesa de estudo"), mesmoTurno.corpo)
-const criancaTarde = await agendar({ data: I, turno: "tarde", crianca: crianca("Bia") }, eva.token)
-conferir("criança em outro turno não conta na RN05", criancaTarde.status === 201, criancaTarde.corpo)
-const minhaCrianca = criancaTarde.corpo.agendamentos.find((x: { socioId: string; crianca?: { nome: string } }) => x.socioId === eva.id && x.crianca)
-conferir("responsável vê os dados da criança", minhaCrianca?.crianca?.nome === "Bia" && minhaCrianca?.crianca?.idade === 6, minhaCrianca)
-const mesmaCrianca = await agendar({ data: I, turno: "noite", crianca: crianca("bia") }, eva.token)
-conferir("mesma criança duas vezes no dia: 409", mesmaCrianca.status === 409 && mesmaCrianca.corpo.mensagem.includes("já tem um agendamento"), mesmaCrianca.corpo)
-const proprioAposCrianca = await agendar({ data: hojeMais(16), turno: "tarde", crianca: crianca("Bia") }, eva.token)
-const proprioMesmoTurno = await agendar({ data: hojeMais(16), turno: "tarde" }, eva.token)
+conferir("agendamento próprio de manhã", proprio.status === 201 && proprio.corpo.mensagem.includes("15 minutos"), proprio.corpo)
+const kidsMesmoTurno = await agendar({ data: I, turno: "manha", crianca: bia }, eva.token)
+conferir("criança no mesmo dia do responsável não conta na RN05", kidsMesmoTurno.status === 201, kidsMesmoTurno.corpo)
+const minhaCrianca = kidsMesmoTurno.corpo.agendamentos.find((x: { socioId: string; crianca?: { cpf: string } }) => x.socioId === eva.id && x.crianca)
 conferir(
-  "responsável não agenda para si no turno da criança: 409",
-  proprioAposCrianca.status === 201 && proprioMesmoTurno.status === 409 && proprioMesmoTurno.corpo.mensagem.includes("criança agendada"),
-  proprioMesmoTurno.corpo,
+  "responsável vê os dados da criança",
+  minhaCrianca?.crianca?.cpf === bia.cpf && minhaCrianca?.crianca?.dataNascimento === bia.dataNascimento,
+  minhaCrianca,
 )
-
-const L = hojeMais(17)
-await pool.query("INSERT INTO culturatech.mesa_estudo (nome, local, espaco) VALUES ($1, 'Teste', 'infantil'), ($2, 'Teste', 'infantil')", [
-  `Extra A ${sufixo}`,
-  `Extra B ${sufixo}`,
-])
-for (const n of ["Um", "Dois", "Tres"]) await agendar({ data: L, turno: "manha", crianca: crianca(n) }, eva.token)
-const quarta = await agendar({ data: L, turno: "tarde", crianca: crianca("Quatro") }, eva.token)
-conferir("quarta criança no dia: 409", quarta.status === 409 && quarta.corpo.mensagem.includes("limite"), quarta.corpo)
-await pool.query("DELETE FROM culturatech.agendamento WHERE data = $1", [L])
-await pool.query("DELETE FROM culturatech.mesa_estudo WHERE nome LIKE $1", [`Extra % ${sufixo}`])
+const mesmaCrianca = await agendar({ data: I, turno: "noite", crianca: bia }, beto.token)
+conferir("mesma criança duas vezes no dia, mesmo por outro sócio: 409 (RN05)", mesmaCrianca.status === 409 && mesmaCrianca.corpo.mensagem.includes("RN05"), mesmaCrianca.corpo)
+const segundaCrianca = await agendar({ data: I, turno: "noite", crianca: crianca("Duda Souza", 4) }, eva.token)
+conferir("o sócio agenda para mais de uma criança", segundaCrianca.status === 201, segundaCrianca.corpo)
 
 // filas separadas por espaço
 const S = hojeMais(18)
 const lotadores: Awaited<ReturnType<typeof novoSocio>>[] = []
-for (const [i] of infantil.entries()) {
-  const s = await novoSocio(`Inf${i}`)
+for (const [i] of kids.entries()) {
+  const s = await novoSocio(`Kid${i}`)
   lotadores.push(s)
-  await agendar({ data: S, turno: "manha", crianca: crianca(`Filho ${i}`) }, s.token)
+  await agendar({ data: S, turno: "manha", crianca: crianca(`Filho Numero${i}`) }, s.token)
 }
 for (let i = 0; i < estudo.length; i++) {
   const s = await novoSocio(`Est${i}`)
   lotadores.push(s)
   await agendar({ data: S, turno: "manha" }, s.token)
 }
-const filaInfantil = await naFila({ data: S, turno: "manha", crianca: crianca("Nina", 4) }, ana.token)
-conferir("fila infantil: posição 1", filaInfantil.status === 201 && filaInfantil.corpo.mensagem.includes("posição 1"), filaInfantil.corpo)
+const nina = crianca("Nina Alves", 4)
+const filaKids = await naFila({ data: S, turno: "manha", crianca: nina }, ana.token)
+conferir("fila Kids: posição 1", filaKids.status === 201 && filaKids.corpo.mensagem.includes("posição 1"), filaKids.corpo)
+const ninaDeNovo = await naFila({ data: S, turno: "manha", crianca: nina }, beto.token)
+conferir("criança só entra em uma fila Kids por dia", ninaDeNovo.status === 409 && ninaDeNovo.corpo.mensagem.includes("já está na fila"), ninaDeNovo.corpo)
 const filaEstudo = await naFila({ data: S, turno: "manha" }, beto.token)
 conferir("fila de estudo é separada: posição 1", filaEstudo.status === 201 && filaEstudo.corpo.mensagem.includes("posição 1"), filaEstudo.corpo)
-const agEstudo = (await chamar("GET", "/mesas", undefined, lotadores[infantil.length].token)).corpo.agendamentos.find(
-  (x: { socioId: string; data: string }) => x.socioId === lotadores[infantil.length].id && x.data === S,
+const agEstudo = (await chamar("GET", "/mesas", undefined, lotadores[kids.length].token)).corpo.agendamentos.find(
+  (x: { socioId: string; data: string }) => x.socioId === lotadores[kids.length].id && x.data === S,
 )
-await chamar("POST", `/agendamentos/${agEstudo.id}/cancelar`, {}, lotadores[infantil.length].token)
+await chamar("POST", `/agendamentos/${agEstudo.id}/cancelar`, {}, lotadores[kids.length].token)
 const aposEstudo = await pool.query("SELECT status FROM culturatech.fila_espera WHERE socio_id = $1 AND data = $2", [ana.id, S])
-conferir("liberar mesa de estudo não mexe na fila infantil", aposEstudo.rows[0]?.status === "aguardando", aposEstudo.rows)
+conferir("liberar mesa de estudo não mexe na fila Kids", aposEstudo.rows[0]?.status === "aguardando", aposEstudo.rows)
 const betoNaFila = await pool.query("SELECT status FROM culturatech.fila_espera WHERE socio_id = $1 AND data = $2", [beto.id, S])
 conferir("liberar mesa de estudo contempla a fila de estudo", betoNaFila.rows[0]?.status === "contemplado", betoNaFila.rows)
+const agKids = (await chamar("GET", "/mesas", undefined, lotadores[0].token)).corpo.agendamentos.find(
+  (x: { socioId: string; data: string }) => x.socioId === lotadores[0].id && x.data === S,
+)
+await chamar("POST", `/agendamentos/${agKids.id}/cancelar`, {}, lotadores[0].token)
+const ninaContemplada = await pool.query(
+  `SELECT a.crianca_cpf, a.origem FROM culturatech.fila_espera f JOIN culturatech.agendamento a ON a.id = f.agendamento_id
+    WHERE f.socio_id = $1 AND f.data = $2`,
+  [ana.id, S],
+)
+conferir("vaga Kids liberada contempla a criança da fila", ninaContemplada.rows[0]?.crianca_cpf === nina.cpf && ninaContemplada.rows[0]?.origem === "fila", ninaContemplada.rows)
 
 const visaoAdmin = (await chamar("GET", "/mesas", undefined, admin)).corpo
-conferir(
-  "admin vê os dados da criança",
-  visaoAdmin.fila.some((x: { crianca?: { nome: string } }) => x.crianca?.nome === "Nina"),
-)
+conferir("admin vê os dados da criança", visaoAdmin.agendamentos.some((x: { crianca?: { nome: string } }) => x.crianca?.nome === "Nina Alves"))
 const visaoOutro = (await chamar("GET", "/mesas", undefined, caio.token)).corpo
 conferir(
   "outro sócio não recebe dados de criança",
-  !JSON.stringify(visaoOutro).includes("Nina") && !JSON.stringify(visaoOutro).includes("Filho 0"),
+  !JSON.stringify(visaoOutro).includes("Nina") && !JSON.stringify(visaoOutro).includes(nina.cpf),
 )
+
+// fila Kids de outro sócio continua identificada pelo espaço
+const R = hojeMais(21)
+for (const [i] of kids.entries()) await agendar({ data: R, turno: "tarde", crianca: crianca(`Lota Kids${i}`) }, lotadores[i].token)
+await naFila({ data: R, turno: "tarde", crianca: crianca("Teo Lima", 5) }, dani.token)
+const visaoFilaKids = (await chamar("GET", "/mesas", undefined, caio.token)).corpo
 conferir(
-  "a fila infantil segue identificada pelo espaço",
-  visaoOutro.fila.some((x: { data: string; espaco: string }) => x.data === S && x.espaco === "infantil"),
-  visaoOutro.fila,
+  "a fila Kids dos outros chega com o espaço",
+  visaoFilaKids.fila.some((x: { data: string; espaco: string; socioId: string }) => x.data === R && x.espaco === "kids" && x.socioId === ""),
+  visaoFilaKids.fila,
 )
+
+// ---------- US30: confirmação de uso ----------
+const amanha = (await chamar("GET", "/mesas", undefined, eva.token)).corpo.agendamentos.find(
+  (x: { socioId: string; data: string; crianca?: unknown }) => x.socioId === eva.id && x.data === I && !x.crianca,
+)
+conferir("sócio não confirma uso: 403", (await chamar("POST", `/agendamentos/${amanha.id}/uso`, {}, eva.token)).status === 403)
+const foraDoDia = await chamar("POST", `/agendamentos/${amanha.id}/uso`, {}, admin)
+conferir("confirmar uso fora do dia: 409", foraDoDia.status === 409 && foraDoDia.corpo.mensagem.includes("no dia do agendamento"), foraDoDia.corpo)
+
+const minutoLocal = Number(new Intl.DateTimeFormat("en-GB", { timeZone: FUSO, minute: "numeric" }).format(new Date()))
+const turnoAberto = ([["manha", 8, 12], ["tarde", 13, 17], ["noite", 18, 21]] as const).find(
+  ([, inicio, fim]) => horaLocal < fim && (horaLocal > inicio || (horaLocal === inicio && minutoLocal >= 15)),
+)
+if (turnoAberto) {
+  const [turno] = turnoAberto
+  // espaço de estudo lotado hoje: um sem confirmação há mais de 15 minutos e um na fila
+  const ausente = await novoSocio("Ausente")
+  const espera = await novoSocio("Espera30")
+  const presentes = await Promise.all(Array.from({ length: estudo.length - 1 }, (_, i) => novoSocio(`Pres${i}`)))
+  for (const [i, s] of [ausente, ...presentes].entries()) {
+    await pool.query(
+      `INSERT INTO culturatech.agendamento (mesa_id, socio_id, data, turno, criado_em, uso_confirmado_em)
+       VALUES ($1, $2, $3, $4, now() - interval '3 hours', $5)`,
+      [estudo[i].id, s.id, hojeLocal, turno, s === ausente ? null : new Date()],
+    )
+  }
+  await pool.query("INSERT INTO culturatech.fila_espera (socio_id, data, turno) VALUES ($1, $2, $3)", [espera.id, hojeLocal, turno])
+  await chamar("GET", "/mesas", undefined, admin)
+  const depoisUso = await pool.query(
+    "SELECT socio_id, status, origem FROM culturatech.agendamento WHERE data = $1 AND socio_id = ANY($2::uuid[])",
+    [hojeLocal, [ausente.id, espera.id]],
+  )
+  conferir(
+    "sem confirmação em 15 minutos a vaga vai para a fila (US30)",
+    depoisUso.rows.some((r) => r.socio_id === ausente.id && r.status === "nao_compareceu") &&
+      depoisUso.rows.some((r) => r.socio_id === espera.id && r.status === "confirmado" && r.origem === "fila"),
+    depoisUso.rows,
+  )
+  const novo = (await chamar("GET", "/mesas", undefined, admin)).corpo.agendamentos.find(
+    (x: { socioId: string; data: string; status: string }) => x.socioId === espera.id && x.data === hojeLocal,
+  )
+  conferir("quem veio da fila ganha a própria tolerância", novo?.status === "confirmado", novo)
+  const confirmou = await chamar("POST", `/agendamentos/${novo.id}/uso`, {}, admin)
+  conferir("admin confirma o uso", confirmou.status === 200 && confirmou.corpo.mensagem.includes("Uso confirmado"), confirmou.corpo)
+  const deNovo = await chamar("POST", `/agendamentos/${novo.id}/uso`, {}, admin)
+  conferir("confirmar duas vezes: 409", deNovo.status === 409 && deNovo.corpo.mensagem.includes("já foi confirmado"), deNovo.corpo)
+
+  // Espaço Kids lotado hoje: confirmar o uso encerra a fila daquele turno
+  const pais = await Promise.all(kids.map((_, i) => novoSocio(`Pai${i}`)))
+  for (const [i, s] of pais.entries()) {
+    const c = crianca(`Hoje Kids${i}`)
+    await pool.query(
+      `INSERT INTO culturatech.agendamento (mesa_id, socio_id, data, turno, crianca_nome, crianca_cpf, crianca_nascimento)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [kids[i].id, s.id, hojeLocal, turno, c.nome, c.cpf, c.dataNascimento],
+    )
+  }
+  const aguardando = await novoSocio("AguardaKids")
+  const naFilaKids = await naFila({ data: hojeLocal, turno, crianca: crianca("Lia Rocha", 3) }, aguardando.token)
+  conferir("fila Kids de hoje", naFilaKids.status === 201, naFilaKids.corpo)
+  const kidsHoje = (await chamar("GET", "/mesas", undefined, admin)).corpo.agendamentos.find(
+    (x: { socioId: string; data: string }) => x.socioId === pais[0].id && x.data === hojeLocal,
+  )
+  const usoKids = await chamar("POST", `/agendamentos/${kidsHoje.id}/uso`, {}, admin)
+  const retirada = await pool.query("SELECT status FROM culturatech.fila_espera WHERE socio_id = $1 AND data = $2", [aguardando.id, hojeLocal])
+  conferir(
+    "uso Kids confirmado retira a fila do turno (US29)",
+    usoKids.status === 200 && usoKids.corpo.mensagem.includes("retirados da fila") && retirada.rows[0]?.status === "retirada",
+    { resposta: usoKids.corpo, fila: retirada.rows },
+  )
+} else {
+  console.log("--    confirmação de uso e vaga sem uso não testadas: nenhum turno aberto há 15 minutos agora")
+}
 
 // ---------- inativar e anonimizar ----------
 const T = hojeMais(19)
@@ -316,54 +400,25 @@ await chamar("POST", `/socios/${dono.id}/ativo`, {}, admin)
 
 const anon = await novoSocio("Anon")
 const A = hojeMais(20)
+const zeca = crianca("Zeca Prado")
 await agendar({ data: A, turno: "manha" }, anon.token)
-await agendar({ data: A, turno: "tarde", crianca: crianca("Zeca") }, anon.token)
-await agendar({ data: A, turno: "noite", crianca: crianca("Zuza") }, anon.token)
+await agendar({ data: A, turno: "tarde", crianca: zeca }, anon.token)
+await agendar({ data: A, turno: "noite", crianca: crianca("Zuza Prado") }, anon.token)
 const anonimizar = await chamar("POST", `/socios/${anon.id}/anonimizar`, {}, admin)
 conferir("anonimizar", anonimizar.status === 200, anonimizar.corpo)
 const restos = await pool.query(
-  `SELECT a.status, a.crianca_nome, a.crianca_idade, s.data_nascimento
+  `SELECT a.status, a.crianca_nome, a.crianca_cpf, a.crianca_nascimento, s.data_nascimento
      FROM culturatech.agendamento a JOIN culturatech.socio_leitor s ON s.id = a.socio_id WHERE a.socio_id = $1`,
   [anon.id],
 )
 conferir(
-  "anonimizar cancela as mesas e apaga os dados de criança e o nascimento",
+  "anonimizar cancela as mesas e apaga os dados das crianças e o nascimento",
   restos.rows.length === 3 &&
-    restos.rows.every((r) => r.status === "cancelado" && r.crianca_idade === null && r.data_nascimento === null) &&
-    !JSON.stringify(restos.rows).includes("Zeca"),
+    restos.rows.every((r) => r.status === "cancelado" && r.crianca_cpf === null && r.crianca_nascimento === null && r.data_nascimento === null) &&
+    !JSON.stringify(restos.rows).includes("Zeca") &&
+    restos.rows.filter((r) => r.crianca_nome).length === 2,
   restos.rows,
 )
-
-// ---------- cadastro: data de nascimento ----------
-const dadosBase = (extra: object) => ({
-  nome: `Nasc Teste ${sufixo}`,
-  cpf: cpfAleatorio(),
-  rg: "",
-  telefone: "82999990000",
-  email: `nasc.${Math.random().toString(36).slice(2)}@example.com`,
-  endereco: { rua: "Rua do Teste", numero: "1", bairro: "Centro", cep: "57300000" },
-  senha: "senha-teste",
-  consentimentoLgpd: true,
-  ...extra,
-})
-const semNasc = await chamar("POST", "/socios", dadosBase({}), admin)
-conferir("cadastro novo sem nascimento: 400", semNasc.status === 400 && semNasc.corpo.mensagem.includes("nascimento"), semNasc.corpo)
-const futuro = await chamar("POST", "/socios", dadosBase({ dataNascimento: hojeMais(30) }), admin)
-conferir("nascimento no futuro: 400", futuro.status === 400 && futuro.corpo.mensagem.includes("nascimento"), futuro.corpo)
-const editarAntigo = await chamar(
-  "PUT",
-  `/socios/${semData.id}`,
-  {
-    nome: `Semdata Mesa ${sufixo}`,
-    cpf: cpfAleatorio(),
-    telefone: "82999990000",
-    email: `semdata2.${sufixo.toLowerCase()}@example.com`,
-    endereco: { rua: "Rua do Teste", numero: "1", bairro: "Centro", cep: "57300000" },
-    consentimentoLgpd: true,
-  },
-  admin,
-)
-conferir("editar cadastro antigo sem nascimento: 200", editarAntigo.status === 200, editarAntigo.corpo)
 
 // ---------- limpeza ----------
 const limpar = await pool.query("SELECT id FROM culturatech.socio_leitor WHERE nome LIKE $1", [`%${sufixo}%`])

@@ -9,11 +9,16 @@ Modelo relacional para **PostgreSQL 16** no **Amazon RDS**, derivado de `src/lib
 | `02_dados_exemplo.sql`        | Dados de demonstração com as mesmas contas e cenários do README do app                                  |
 | `03_ajuste_search_path.sql`   | Só para bancos criados antes de as funções fixarem o próprio `search_path`; rode uma vez                |
 | `04_localizacao_exemplar.sql` | Só para bancos criados antes da coluna `exemplar.localizacao`; rode uma vez (pode repetir sem problema) |
-| `05_mesas_espaco_infantil.sql` | Só para bancos criados antes do espaço infantil: colunas, índices e dados fictícios de mesas e instituições (pode repetir sem problema) |
+| `05_indice_mural.sql`         | Só para bancos criados antes do índice `ix_publicacao_tipo_data` (filtro do mural); pode repetir         |
+| `06_data_nascimento.sql`      | Só para bancos criados antes da coluna `socio_leitor.data_nascimento` (US29); pode repetir               |
+| `07_mesas_espaco_kids.sql`    | Só para bancos criados antes do Espaço Kids (US29) e da confirmação de uso (US30) no banco: colunas, índices e dados fictícios de mesas e instituições; pode repetir |
 | `modelo_dados.png`            | Diagrama com todas as tabelas, colunas, tipos e chaves, gerado a partir de `01_schema.sql`               |
 
 > Banco novo: rode apenas `01_schema.sql` (e, se quiser os dados de demonstração, `02_dados_exemplo.sql`). Os arquivos
-> `03`, `04` e `05` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
+> `03` a `07` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
+>
+> Os PDFs de exemplo do repositório não cabem num `.sql` (os bytes ficam no S3): depois do `02`, com a API no ar, rode
+> `npm run dados-pdf` em `server/`.
 
 ## Diagrama entidade-relacionamento
 
@@ -64,13 +69,16 @@ erDiagram
 - **Localização do exemplar**: `exemplar.localizacao` (`VARCHAR(80)`, opcional) diz onde a cópia fica, por exemplo
   "Estante 3, prateleira B". Quando é nula, vale a `secao` (A–Z) da obra. É informação interna da equipe: a visão
   `vw_consulta_publica` não a expõe.
-- **Espaço infantil (US28)**: `mesa_estudo.espaco` separa as mesas de `estudo` e `infantil`. Quando o agendamento ou a
-  entrada na fila é para uma criança, `crianca_nome` e `crianca_idade` ficam preenchidos, e a fila dessa entrada é a do
-  espaço infantil. A idade da criança é a informada no dia do agendamento (de 0 a 11 anos), não uma data de
-  nascimento, e não se atualiza depois. `socio_leitor.data_nascimento` confere a idade do responsável; é nula em
-  cadastros antigos, e a API recusa data futura (o banco só barra datas antes de 1900, porque um `CHECK` com
-  `CURRENT_DATE` mudaria de resultado com o tempo). Na anonimização, a data é apagada, o nome da criança vira um código e
-  a idade fica nula.
+- **Espaço Kids (US29)**: `mesa_estudo.espaco` separa as mesas de `estudo` e `kids`. A criança de até 11 anos não tem
+  cadastro: quando o agendamento ou a entrada na fila é para ela, `crianca_nome`, `crianca_cpf` e `crianca_nascimento`
+  ficam preenchidos, `socio_id` é o sócio responsável e a fila dessa entrada é a do Espaço Kids. A RN05 vale para cada
+  criança, pelo CPF (`ux_agendamento_crianca_dia`). `socio_leitor.data_nascimento` confere os 12 anos da conta própria;
+  é nula em cadastros migrados. Na anonimização do responsável, a data dele é apagada, o nome da criança vira um código
+  e o CPF e o nascimento dela ficam nulos.
+- **Confirmação de uso (US30)**: `agendamento.uso_confirmado_em` registra quando o funcionário confirmou que o espaço
+  está em uso. Sem a confirmação em até 15 minutos do início do turno (ou do agendamento, se feito depois), o
+  agendamento passa a `nao_compareceu` e a vaga vai para o primeiro da fila. Quando o uso de uma mesa Kids é confirmado,
+  quem aguardava na fila daquele turno do Espaço Kids sai dela com o status `retirada`.
 - **Arquivos**: imagens e PDFs ficam no **Amazon S3**; a tabela `arquivo` guarda só metadados e a chave do objeto
   (`chave_storage`, no formato `<pasta>/<uuid>.<extensão>`, com as pastas `mural`, `acervo`, `documentos`, `socios` e
   `danos`). Banco relacional não é bom lugar para binários grandes.
@@ -87,7 +95,7 @@ erDiagram
 | RN01 — até 3 itens (empréstimos + reservas)            | trigger `tg_validar_emprestimo` / `tg_validar_reserva`          |
 | RN04 — raro, cordel e exemplar único não saem          | triggers acima                                                  |
 | RN05 — um agendamento próprio por sócio por dia        | índice único parcial `ux_agendamento_socio_dia`                 |
-| US28 — um agendamento por criança por dia              | índice único parcial `ux_agendamento_crianca_dia`               |
+| RN05 no Espaço Kids — um turno por dia por criança     | índice único parcial `ux_agendamento_crianca_dia` (pelo CPF)     |
 | RN08 — multa em aberto ou atraso bloqueia              | função `fn_socio_bloqueado` nos triggers                        |
 | RN17 — até 3 renovações                                | `CHECK (renovacoes BETWEEN 0 AND 3)`                            |
 | RN22 — seção de A a Z                                  | `CHECK (secao ~ '^[A-Z]$')`                                     |
@@ -123,8 +131,8 @@ rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito c
    ```
 
    Se o banco já existia de antes, rode também os ajustes que faltarem: `03_ajuste_search_path.sql`,
-   `04_localizacao_exemplar.sql` e `05_mesas_espaco_infantil.sql`. Sem o `05`, o login pela API é recusado, porque as
-   rotas de mesas não encontram as colunas novas.
+   `04_localizacao_exemplar.sql`, `05_indice_mural.sql`, `06_data_nascimento.sql` e `07_mesas_espaco_kids.sql`, nessa
+   ordem. Sem o `07`, o login pela API é recusado, porque as rotas de mesas não encontram as colunas novas.
 
 5. **Crie um usuário próprio para a aplicação** (não use o `postgres` no back-end):
 

@@ -77,6 +77,12 @@ const preencher = async (rotulo, valor) => {
   if (!id) throw new Error("campo não encontrado: " + rotulo)
   return digitar(`[id="${id}"]`, valor)
 }
+// data local (AAAA-MM-DD) a n dias de hoje
+const dataISO = (n) => {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
 const slideAtual = () =>
   js(`document.querySelector('[aria-roledescription=slide][aria-hidden=false]')?.getAttribute('aria-label') ?? ''`)
 const opacidadeLerMais = () =>
@@ -139,7 +145,6 @@ ok((await texto()).includes("RG (opcional)"), "RG aparece marcado como (opcional
 // RG não é preenchido de propósito: o campo é opcional
 await preencher("Telefone", "(82) 99876-5432")
 await preencher("E-mail", "carla.rocha@email.com")
-await preencher("Data de nascimento", "1995-03-14")
 await preencher("Rua", "Rua Nova")
 await preencher("Número", "10")
 await preencher("Bairro", "Centro")
@@ -151,6 +156,14 @@ await js("document.querySelector('form').requestSubmit()")
 await espera(300)
 ok((await texto()).includes("As senhas não conferem"), "cadastro confere a confirmação da senha")
 await preencher("Confirmar senha", "segredo1")
+await js("document.querySelector('form').requestSubmit()")
+await espera(300)
+ok((await texto()).includes("Informe a data de nascimento"), "cadastro exige a data de nascimento (US29)")
+await preencher("Data de nascimento", dataISO(-11 * 365))
+await js("document.querySelector('form').requestSubmit()")
+await espera(300)
+ok((await texto()).includes("a partir dos 12 anos"), "cadastro de menor de 12 anos recusado (US29)")
+await preencher("Data de nascimento", "1994-06-12")
 await js("document.querySelector('form').requestSubmit()")
 await espera(600)
 ok((await toast()).includes("Conta criada") && (await texto()).includes("Carla"), "conta criada e usuário já entra no sistema")
@@ -195,6 +208,7 @@ await ir("#/repositorio/demo-pdf-fundacao")
 await espera(1500)
 const iframe = await js("!!document.querySelector('iframe[src^=\"blob:\"]')")
 ok(iframe, "PDF descomprimido e exibido no navegador (RF17)")
+ok((await texto()).includes("somente consulta digital"), "obra rara: aviso de somente consulta digital (US18)")
 await foto("04-visualizador-pdf")
 
 // ---------------- Sócio com pendências ----------------
@@ -232,24 +246,36 @@ await ir("#/mesas")
 await espera(300)
 t = await texto()
 ok(t.includes("Manhã") && t.includes("Tarde") && t.includes("Noite"), "grade de mesas por turno (RN10)")
-ok(t.includes("Mesas de estudo") && t.includes("Para quem é o agendamento"), "US28 escolha de para quem é o agendamento")
 await foto("07-mesas")
-// US28: agendamento para criança, em um dia sem turnos encerrados
-const amanha = new Date(Date.now() + 86_400_000)
-await digitar("input[type=date]", `${amanha.getFullYear()}-${String(amanha.getMonth() + 1).padStart(2, "0")}-${String(amanha.getDate()).padStart(2, "0")}`)
-await espera(200)
-await digitar("select", "crianca")
-await espera(200)
-await digitar("input[maxlength='150']", "Bia Silva")
-await digitar("input[type=number]", "6")
-await espera(200)
-t = await texto()
-ok(t.includes("Espaço infantil") && t.includes("Mesa Infantil 2"), "US28 criança mostra as mesas do espaço infantil")
-await clicar("Agendar")
+
+// Espaço Kids (US29): agendamento para uma criança sem cadastro, ligada à sócia
+await clicar("Espaço Kids")
 await espera(300)
-ok((await toast()).includes("agendada"), "US28 agendamento para criança")
+await preencher("Data", dataISO(2))
+await espera(300)
 t = await texto()
-ok(t.includes("Para Bia Silva"), "US28 a lista identifica a criança")
+ok(t.includes("Dados da criança") && t.includes("Mesa Kids 1"), "aba Espaço Kids com as mesas Kids e os dados da criança")
+const agendarKids = () =>
+  js(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.innerText.trim() === 'Agendar'); b?.click(); return !!b })()`)
+await agendarKids()
+await espera(300)
+ok((await js("document.querySelectorAll('[aria-invalid=true]').length")) === 1 && (await texto()).includes("nome completo da criança"), "criança sem nome: campo apontado")
+await preencher("Nome completo da criança", "Davi Souza Lima")
+await preencher("CPF da criança", "123.456.789-00")
+await agendarKids()
+await espera(300)
+ok((await texto()).includes("CPF da criança inválido"), "CPF inválido da criança recusado e indicado no campo")
+await preencher("CPF da criança", "715.304.928-23")
+await preencher("Data de nascimento", dataISO(-13 * 365))
+await agendarKids()
+await espera(300)
+ok((await texto()).includes("própria conta de sócio-leitor"), "criança com 12 anos ou mais recusada no Espaço Kids")
+await preencher("Data de nascimento", dataISO(-7 * 365))
+await agendarKids()
+await espera(400)
+t = await texto()
+ok((await toast()).includes("agendada para Davi") && t.includes("Criança: Davi Souza Lima") && t.includes("Responsável: você"), "Espaço Kids agendado e criança vinculada à responsável")
+await foto("07b-espaco-kids")
 
 await clicar("Sair")
 await espera(400)
@@ -264,27 +290,42 @@ t = await texto()
 ok(t.includes("Circulação") && t.includes("Empréstimos em andamento"), "admin entra na Circulação")
 await foto("08-circulacao")
 
-// RN08: Maria Joana bloqueada
+// RN08: Maria Joana bloqueada (sócio localizado pela busca por nome ou CPF, T05)
+const escolherSocio = async (busca, nome) => {
+  await preencher("Sócio-leitor", busca)
+  await espera(250)
+  return js(`(() => { const o = [...document.querySelectorAll('[role=dialog] [role=option]')].find(x => x.innerText.includes(${JSON.stringify(nome)})); o?.click(); return !!o })()`)
+}
 await clicar("Novo empréstimo")
 await espera(300)
-await digitar('[role=dialog] select', "s1")
+ok(await escolherSocio("529.982", "Maria Joana"), "busca de sócio pelo CPF no empréstimo (T05)")
 await espera(200)
 t = await texto()
 ok(t.includes("Novos empréstimos estão bloqueados (RN08)"), "RN08 aviso de bloqueio no empréstimo")
+ok(
+  t.includes("Data de saída") && t.includes("Devolução prevista") && (await js(`[...document.querySelectorAll('[role=dialog] button')].find(b => b.innerText.includes('Confirmar empréstimo'))?.disabled`)),
+  "datas exibidas e confirmação travada para sócio bloqueado (US10)",
+)
 // João Pedro: empréstimo de um exemplar de cordel deve ser recusado na lista
-await digitar('[role=dialog] select', "s2")
-await digitar('[role=dialog] input', "Cante")
+await clicar("Trocar")
+await espera(200)
+ok(await escolherSocio("joao", "João Pedro"), "busca de sócio pelo nome, sem acento")
+await preencher("Exemplar", "Cante")
 await espera(300)
 t = await texto()
 ok(t.includes("consulta local (RN04)"), "RN04 exemplar de cordel aparece como não emprestável")
-await digitar('[role=dialog] input', "Vidas")
+await preencher("Exemplar", "Vidas")
 await espera(300)
-await js(`[...document.querySelectorAll('[role=option]')].find(o => !o.disabled)?.click()`)
+await js(`[...document.querySelectorAll('[role=dialog] [role=listbox][aria-label=Exemplares] [role=option]')].find(o => !o.disabled)?.click()`)
 await clicar("Confirmar empréstimo")
 await espera(400)
 ok((await toast()).includes("Empréstimo registrado"), "empréstimo registrado com prazo de 14 dias (RN02)")
 
-// Renovação
+// Renovação: só aparece quando é permitida (T19)
+ok(
+  await js(`(() => { const tr = [...document.querySelectorAll('tbody tr')].find(r => r.innerText.includes('Maria Joana')); return !!tr && !tr.innerText.includes('Renovar') && tr.innerText.includes('Não renovável') })()`),
+  "renovação oculta para empréstimo atrasado (T19)",
+)
 await clicar("Renovar")
 await espera(300)
 ok((await toast()).includes("renovado"), "renovação acrescenta 14 dias (RN02)")
@@ -375,12 +416,29 @@ await ir("#/circulacao")
 t = await texto()
 ok(t.includes("Empréstimos em andamento"), "sessão e dados persistem após recarregar")
 
-// Celular
+// Celular (US30)
 await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
+await ir("#/circulacao")
+await espera(400)
+const largCirc = await js("document.documentElement.scrollWidth")
+ok(
+  largCirc <= 390 && (await js("[...document.querySelectorAll('main li')].some(li => li.innerText.includes('Devolver'))")),
+  `circulação em cartões, sem rolagem horizontal no celular (US30) [${largCirc}px]`,
+)
+await foto("15b-circulacao-celular")
 await ir("#/mural")
 await espera(400)
 const larg = await js("document.documentElement.scrollWidth")
 ok(larg <= 390, `layout sem rolagem horizontal no celular (RNF11) [${larg}px]`)
+await digitar('input[aria-label="Buscar no mural"]', "cordel")
+await espera(300)
+ok(
+  (await js("[...document.querySelectorAll('[aria-roledescription=slide]')].every(s => /cordel/i.test(s.innerText))")) &&
+    (await js("document.querySelectorAll('[aria-roledescription=slide]').length")) > 0,
+  "busca no mural filtra as publicações (US22)",
+)
+await digitar('input[aria-label="Buscar no mural"]', "")
+await espera(300)
 await foto("16-mural-celular")
 await js("document.querySelector('[aria-label=\"Abrir menu\"]').click()")
 await espera(400)

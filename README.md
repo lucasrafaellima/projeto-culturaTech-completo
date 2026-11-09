@@ -22,7 +22,7 @@ npm run preview    # serve o build em http://localhost:4173
 | Sócio-leitor | `153.509.460-56` (João Pedro) | `123456` | Regular, com reserva e empréstimo vencendo em 2 dias |
 | Sócio-leitor | `714.602.380-01` (Ana Beatriz) | `123456` | Multa com justificativa aguardando julgamento |
 | Sócio-leitor | `385.613.920-61` (Pedro Henrique) | `123456` | Cadastro sem e-mail: falha de notificação |
-| Sócio-leitor | `861.904.237-87` (Lucas Ferreira) | `123456` | 14 anos: não agenda para criança |
+| Sócio-leitor | `020.112.940-02` (Lúcia Ferreira) | `123456` | Só no banco (`02_dados_exemplo.sql`): dois exemplares atrasados, multa corrente somada |
 
 Visitantes não precisam de login para o mural, a consulta pública e o repositório digital.
 Os dados de demonstração têm datas relativas ao dia do primeiro acesso. Em **Backups** é possível restaurá-los.
@@ -30,8 +30,8 @@ Os dados de demonstração têm datas relativas ao dia do primeiro acesso. Em **
 ### Verificações
 
 ```bash
-npm run verificar          # 59 verificações das regras puras (CSV, catalogação, multas, fila, notificações...)
-npm run testar-navegador   # 50 testes de ponta a ponta no Chrome headless (exige `npm run preview` rodando)
+npm run verificar          # 68 verificações das regras puras (CSV, catalogação, multas, fila, notificações...)
+npm run testar-navegador   # 60 testes de ponta a ponta no Chrome headless (exige `npm run preview` rodando)
 ```
 
 O teste de navegador usa o Chrome instalado (caminho padrão do Windows ou variável `CHROME`) e salva as telas em
@@ -111,7 +111,9 @@ seja contornada.
 | **US25** Meu histórico | Minha Área → Meu histórico de leitura | RF04, RN23 |
 | **US26** Meus reservados | Minha Área / Consulta → Reservar | RF14, RN28 |
 | **US27** Login por perfil | Entrar / menu por perfil | RNF02, RNF01 |
-| **US28** Agendar para criança | Mesas de Estudo → Para quem é o agendamento | Sem requisito escrito: as regras foram definidas nesta entrega (item 9 abaixo) |
+| **US28** (W) | Substituída pela US29 | — |
+| **US29** Espaço Kids | Mesas de Estudo → aba Espaço Kids / Criar conta e Sócios-leitores (data de nascimento) | Criança de até 11 anos sem cadastro (nome, CPF e nascimento), vinculada ao responsável; conta própria só a partir dos 12 anos; fila própria, encerrada quando o uso é confirmado |
+| **US30** Confirmar uso do espaço | Mesas de Estudo → Confirmar uso (administrador) | Sem confirmação em até 15 minutos do início do turno (ou do agendamento, se feito depois), a vaga é liberada e vai para o primeiro da fila |
 
 Além das histórias: backups automáticos diários com restauração (RNF05), textos em português com acentuação (RNF04) e
 layout responsivo com menu recolhível (RNF11).
@@ -131,10 +133,13 @@ resolvidos assim e podem ser ajustados:
 7. **Catalogação (RN19)**: segue o AACR2 — entrada pelo último sobrenome (“RAMOS, Graciliano”), com Filho/Júnior/Neto junto
    do sobrenome; até 3 autores, entrada principal pelo primeiro; mais de 3, entrada pelo título.
 8. **Turnos**: manhã 8h–12h, tarde 13h–17h, noite 18h–21h; agendamento com até 30 dias de antecedência.
-9. **Agendamento para criança (US28)**: o espaço infantil tem mesas próprias e fila separada. O responsável precisa ter
-   16 anos completos, conferidos pela data de nascimento do cadastro, e não pode ter mesa de estudo no mesmo turno da
-   criança. A criança tem de 0 a 11 anos (ECA). O agendamento para criança não conta no limite de 1 turno por dia (RN05);
-   vale 1 por dia para cada criança e até 3 crianças por dia para cada responsável.
+9. **Espaço Kids e RN05**: o agendamento feito para a criança não conta no limite de 1 turno por dia do responsável; o
+   limite vale para cada criança (pelo CPF). Um sócio-leitor pode agendar para mais de uma criança. A idade é conferida
+   na data do agendamento, e o CPF de um sócio-leitor cadastrado não é aceito como CPF de criança.
+10. **Fila do Espaço Kids**: quando o uso de uma mesa Kids é confirmado, todos os que aguardavam na fila daquele turno do
+    Espaço Kids saem dela (status "retirada"), conforme a US29, mesmo que o espaço tenha outra mesa.
+11. **Cadastros sem data de nascimento** (migrados ou anteriores à US29): continuam valendo; a ficha do sócio-leitor
+    avisa, e o administrador precisa informar a data na próxima edição do cadastro.
 
 ## Limites desta entrega
 
