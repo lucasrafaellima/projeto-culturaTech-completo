@@ -13,7 +13,7 @@ export function formatCurrency(value: number): string {
 // Datas — sempre no fuso local, no formato AAAA-MM-DD, para que
 // "hoje" não mude de dia por causa de conversão para UTC.
 // ------------------------------------------------------------
-function paraISO(d: Date): string {
+export function paraISO(d: Date): string {
   const a = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const dia = String(d.getDate()).padStart(2, "0")
@@ -80,6 +80,10 @@ export function formatDateTime(valor: string): string {
     dateStyle: "short",
     timeStyle: "short",
   })
+}
+
+export function formatHora(valor: string | Date): string {
+  return new Date(valor).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
 }
 
 export function formatBytes(bytes: number): string {

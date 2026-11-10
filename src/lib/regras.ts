@@ -14,6 +14,7 @@ import type {
   MesaEstudo,
   Multa,
   Notificacao,
+  SituacaoAgendamento,
   SocioLeitor,
   TipoNotificacao,
   Turno,
@@ -21,6 +22,7 @@ import type {
 import {
   DIAS_LEMBRETE,
   IDADE_MAXIMA_KIDS,
+  IDADE_MINIMA_RESPONSAVEL_KIDS,
   IDADE_MINIMA_SOCIO,
   MULTA_POR_DIA,
   TOLERANCIA_USO_MINUTOS,
@@ -35,6 +37,7 @@ import {
   formatCurrency,
   formatDate,
   idade,
+  paraISO,
   primeiroNome,
   somenteDigitos,
   uuid,
@@ -201,8 +204,23 @@ export function validarCrianca(
   if (idade(c.dataNascimento, dataAgendamento) > IDADE_MAXIMA_KIDS) {
     return {
       campo: "dataNascimento",
-      mensagem: `O Espaço Kids é só para crianças de até ${IDADE_MAXIMA_KIDS} anos. A partir dos ${IDADE_MINIMA_SOCIO} anos, ela pode criar a própria conta de sócio-leitor.`,
+      mensagem: `O Espaço Kids é só para crianças de até ${IDADE_MAXIMA_KIDS} anos. A partir dos ${IDADE_MINIMA_SOCIO} anos, ela pode criar a própria conta de sócio-leitor, mas só pode ser responsável e agendar o Espaço Kids para uma criança a partir dos ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos.`,
     }
+  }
+  return null
+}
+
+/**
+ * US29: só o sócio-leitor de 18 anos ou mais pode ser responsável e agendar o Espaço
+ * Kids (ou entrar na fila dele) para uma criança. A idade vale na data do agendamento;
+ * cadastro sem data de nascimento não tem como comprovar a idade.
+ */
+export function validarResponsavelKids(socio: SocioLeitor, dataAgendamento: string): string | null {
+  if (!socio.dataNascimento) {
+    return `O cadastro de ${primeiroNome(socio.nome)} está sem data de nascimento. Para ser responsável no Espaço Kids é preciso ter ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos ou mais: a data de nascimento precisa ser informada no cadastro.`
+  }
+  if (idade(socio.dataNascimento, dataAgendamento) < IDADE_MINIMA_RESPONSAVEL_KIDS) {
+    return `Somente sócios-leitores a partir dos ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos podem ser responsáveis e agendar o Espaço Kids para uma criança.`
   }
   return null
 }
@@ -261,11 +279,131 @@ export function processarFila(
  * fila), a partir do momento em que ele foi feito.
  */
 export function prazoConfirmacaoUso(a: Agendamento): Date {
-  const [ano, mes, dia] = a.data.split("-").map(Number)
-  const inicio = new Date(ano, mes - 1, dia, INICIO_TURNO[a.turno])
+  const inicio = inicioDoTurno(a.data, a.turno)
   const criado = new Date(a.criadoEm)
   const base = criado > inicio ? criado : inicio
   return new Date(base.getTime() + TOLERANCIA_USO_MINUTOS * 60_000)
+}
+
+export function inicioDoTurno(data: string, turno: Turno): Date {
+  const [ano, mes, dia] = data.split("-").map(Number)
+  return new Date(ano, mes - 1, dia, INICIO_TURNO[turno])
+}
+
+/** Turno em andamento ou o próximo do dia; depois das 17h, a noite. */
+export function turnoDoMomento(hora: number): Turno {
+  if (hora < FIM_TURNO.manha) return "manha"
+  if (hora < FIM_TURNO.tarde) return "tarde"
+  return "noite"
+}
+
+/** US30: situação do agendamento vista no acompanhamento (ver SituacaoAgendamento). */
+export function situacaoAgendamento(a: Agendamento, agora: Date): SituacaoAgendamento {
+  if (a.status === "cancelado") return "cancelado"
+  if (a.status === "nao_compareceu") return "nao_compareceu"
+  const encerrado = turnoEncerrado(a.data, a.turno, paraISO(agora), agora.getHours())
+  if (a.usoConfirmadoEm) return encerrado ? "utilizado" : "em_uso"
+  if (encerrado) return "encerrado"
+  if (agora < inicioDoTurno(a.data, a.turno)) return "agendado"
+  return agora < prazoConfirmacaoUso(a) ? "aguardando_uso" : "prazo_esgotado"
+}
+
+/** Para onde foi a vaga de um agendamento sem uso: o próximo agendamento da mesma mesa no turno. */
+export type DestinoVaga = { tipo: "fila" | "direto"; agendamento: Agendamento } | { tipo: "livre" }
+
+export function destinoDaVaga(e: Estado, a: Agendamento): DestinoVaga {
+  const desde = new Date(a.criadoEm).getTime()
+  const seguinte = e.agendamentos
+    .filter(
+      (x) =>
+        x.id !== a.id &&
+        x.mesaId === a.mesaId &&
+        x.data === a.data &&
+        x.turno === a.turno &&
+        x.status !== "cancelado" &&
+        new Date(x.criadoEm).getTime() >= desde,
+    )
+    .sort((x, y) => new Date(x.criadoEm).getTime() - new Date(y.criadoEm).getTime())[0]
+  if (!seguinte) return { tipo: "livre" }
+  return { tipo: seguinte.origem === "fila" ? "fila" : "direto", agendamento: seguinte }
+}
+
+/**
+ * Compara a fila e os agendamentos antes e depois de liberar a vaga de `ag`: quem
+ * da fila foi contemplado com a mesa e quantos foram pulados por já terem
+ * agendamento no dia (RN05). Serve tanto para o estado local quanto para a
+ * resposta da API.
+ */
+export function transferenciaDaVaga(
+  antes: Estado,
+  depois: Estado,
+  ag: Agendamento,
+): { contemplado: Agendamento | null; ignorados: number } {
+  const espaco = espacoDoAgendamento(antes, ag)
+  const existentes = new Set(antes.agendamentos.map((a) => a.id))
+  const contemplado =
+    depois.agendamentos.find(
+      (a) =>
+        !existentes.has(a.id) && a.origem === "fila" && a.mesaId === ag.mesaId && a.data === ag.data && a.turno === ag.turno,
+    ) ?? null
+  const aguardando = new Set(filaDoTurno(depois, ag.data, ag.turno, espaco).map((f) => f.id))
+  const sairam = filaDoTurno(antes, ag.data, ag.turno, espaco).filter((f) => !aguardando.has(f.id)).length
+  return { contemplado, ignorados: Math.max(0, sairam - (contemplado ? 1 : 0)) }
+}
+
+/**
+ * US30: o administrador registra o não comparecimento de um agendamento. A vaga
+ * vai para o primeiro da fila daquele turno e espaço que não tenha agendamento no
+ * dia; sem fila, a mesa fica livre para novo agendamento.
+ */
+export function registrarNaoComparecimentoNoEstado(
+  e: Estado,
+  agendamentoId: string,
+  agora: string,
+): { estado: Estado; contemplado: Agendamento | null; ignorados: number } {
+  const ag = e.agendamentos.find((a) => a.id === agendamentoId)
+  if (!ag) return { estado: e, contemplado: null, ignorados: 0 }
+  const marcado: Estado = {
+    ...e,
+    agendamentos: e.agendamentos.map((a) => (a.id === agendamentoId ? { ...a, status: "nao_compareceu" } : a)),
+  }
+  const estado = processarFila(marcado, ag.data, ag.turno, agora, espacoDoAgendamento(e, ag))
+  return { estado, ...transferenciaDaVaga(marcado, estado, ag) }
+}
+
+/** Linha do tempo do turno: agendamentos, contemplações, usos confirmados e não comparecimentos. */
+export interface MovimentoMesa {
+  id: string
+  quando: string // ISO datetime
+  tipo: "agendado" | "contemplado" | "uso_confirmado" | "nao_compareceu"
+  agendamento: Agendamento
+  destino?: DestinoVaga // só no não comparecimento
+}
+
+export function movimentacoesDoTurno(e: Estado, data: string, turno: Turno, espaco?: EspacoMesa): MovimentoMesa[] {
+  const movimentos: MovimentoMesa[] = []
+  for (const a of e.agendamentos) {
+    if (a.data !== data || a.turno !== turno || a.status === "cancelado") continue
+    if (espaco && espacoDoAgendamento(e, a) !== espaco) continue
+    movimentos.push({ id: `${a.id}-criado`, quando: a.criadoEm, tipo: a.origem === "fila" ? "contemplado" : "agendado", agendamento: a })
+    if (a.usoConfirmadoEm) {
+      movimentos.push({ id: `${a.id}-uso`, quando: a.usoConfirmadoEm, tipo: "uso_confirmado", agendamento: a })
+    }
+    if (a.status === "nao_compareceu") {
+      movimentos.push({
+        id: `${a.id}-ausente`,
+        quando: prazoConfirmacaoUso(a).toISOString(),
+        tipo: "nao_compareceu",
+        agendamento: a,
+        destino: destinoDaVaga(e, a),
+      })
+    }
+  }
+  // mais recentes primeiro; no mesmo instante, a contemplação vem antes da ausência que a gerou
+  const ordem: Record<MovimentoMesa["tipo"], number> = { contemplado: 0, uso_confirmado: 1, nao_compareceu: 2, agendado: 3 }
+  return movimentos.sort(
+    (x, y) => new Date(y.quando).getTime() - new Date(x.quando).getTime() || ordem[x.tipo] - ordem[y.tipo],
+  )
 }
 
 /** US29: com o uso do Espaço Kids confirmado, os demais da fila daquele turno saem dela. */

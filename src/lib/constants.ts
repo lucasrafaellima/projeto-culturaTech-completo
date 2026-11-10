@@ -10,6 +10,7 @@ import type {
   TipoNotificacao,
   TipoMovimentacao,
   EspacoMesa,
+  SituacaoAgendamento,
 } from "./types"
 
 // ============================================================
@@ -26,6 +27,7 @@ export const MAX_DOACOES_PESSOA_FISICA = 1 // RN26
 export const MIN_JUSTIFICATIVA = 20 // RN07 / RN24: texto mínimo de uma justificativa "fundamentada"
 export const IDADE_MINIMA_SOCIO = 12 // US29: conta própria (e empréstimos) a partir dos 12 anos
 export const IDADE_MAXIMA_KIDS = 11 // US29: Espaço Kids só para crianças de até 11 anos
+export const IDADE_MINIMA_RESPONSAVEL_KIDS = 18 // US29: responsável (e quem agenda) no Espaço Kids só a partir dos 18 anos
 export const TOLERANCIA_USO_MINUTOS = 15 // US30: sem confirmação de uso nesse prazo, a vaga é liberada
 
 // Categorias restritas (RN04 / RNF09): apenas consulta local
@@ -114,6 +116,29 @@ export const horarioTurno: Record<Turno, string> = {
 export const labelEspaco: Record<EspacoMesa, string> = {
   estudo: "Mesas de estudo",
   kids: "Espaço Kids",
+}
+
+// US30: situação do agendamento no acompanhamento (situacaoAgendamento, em regras.ts)
+export const labelSituacaoAgendamento: Record<SituacaoAgendamento, string> = {
+  agendado: "Agendado",
+  aguardando_uso: "Aguardando confirmação",
+  prazo_esgotado: "Tolerância esgotada",
+  em_uso: "Em uso",
+  utilizado: "Utilizado",
+  nao_compareceu: "Não compareceu",
+  cancelado: "Cancelado",
+  encerrado: "Encerrado sem confirmação",
+}
+
+export const corSituacaoAgendamento: Record<SituacaoAgendamento, string> = {
+  agendado: "bg-primary/10 text-primary",
+  aguardando_uso: "bg-warning/20 text-warning-foreground",
+  prazo_esgotado: "bg-danger/15 text-danger",
+  em_uso: "bg-success/15 text-success",
+  utilizado: "bg-success/15 text-success",
+  nao_compareceu: "bg-muted text-muted-foreground",
+  cancelado: "bg-muted text-muted-foreground",
+  encerrado: "bg-muted text-muted-foreground",
 }
 
 export const labelMulta: Record<StatusMulta, string> = {

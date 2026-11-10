@@ -11,16 +11,24 @@ import {
   aplicarRotinas,
   confirmarUsoNoEstado,
   debitos,
+  destinoDaVaga,
   filaDoTurno,
   gerarNotificacoes,
   espacoDaFila,
   liberarMesasDoSocio,
   liberarVagasSemUso,
   mesasDoEspaco,
+  mesasLivres,
+  movimentacoesDoTurno,
   prazoConfirmacaoUso,
   processarFila,
+  registrarNaoComparecimentoNoEstado,
+  situacaoAgendamento,
   socioBloqueado,
+  transferenciaDaVaga,
+  turnoDoMomento,
   validarCrianca,
+  validarResponsavelKids,
 } from "../src/lib/regras"
 import { statusVisivel, categoriaEmprestavel, imagemValida, csvValido } from "../src/lib/constants"
 
@@ -103,6 +111,18 @@ ok(validarCrianca(e, { ...crianca, cpf: "153.509.460-56" }, hoje, amanha)?.campo
 ok(validarCrianca(e, { ...crianca, dataNascimento: "" }, hoje, amanha)?.campo === "dataNascimento", "data de nascimento da criança exigida")
 const doze = validarCrianca(e, { ...crianca, dataNascimento: nascidaHa(12) }, hoje, hoje)
 ok(doze?.campo === "dataNascimento" && doze.mensagem.includes("própria conta"), "12 anos ou mais: recusa e orienta a criar a conta")
+ok(!!doze?.mensagem.includes("responsável e agendar o Espaço Kids para uma criança a partir dos 18 anos"), "recusa informa que só aos 18 anos pode ser responsável")
+
+// Responsável pelo Espaço Kids: só a partir dos 18 anos (na data do agendamento)
+const joao = e.socios.find((s) => s.id === "s2")!
+ok(validarResponsavelKids(joao, amanha) === null, "sócio adulto pode ser responsável no Espaço Kids")
+ok(validarResponsavelKids({ ...joao, dataNascimento: nascidaHa(18) }, hoje) === null, "responsável que faz 18 anos hoje é aceito")
+const dezessete = validarResponsavelKids({ ...joao, dataNascimento: nascidaHa(18, 1) }, hoje)
+ok(!!dezessete?.includes("a partir dos 18 anos"), "17 anos (18 amanhã): não pode ser responsável")
+ok(validarResponsavelKids({ ...joao, dataNascimento: nascidaHa(18, 1) }, addDays(hoje, 1)) === null, "idade do responsável vale na data do agendamento")
+ok(validarResponsavelKids({ ...joao, dataNascimento: nascidaHa(12) }, hoje) !== null, "sócio de 12 anos tem conta, mas não agenda o Espaço Kids")
+ok(!!validarResponsavelKids({ ...joao, dataNascimento: undefined }, hoje)?.includes("sem data de nascimento"), "cadastro sem data de nascimento não comprova a idade do responsável")
+ok(validarResponsavelKids(e.socios.find((s) => s.id === "s5")!, hoje) !== null, "sócio de 17 anos dos dados de demonstração recusado como responsável")
 ok(validarCrianca(e, { ...crianca, dataNascimento: nascidaHa(12, 1) }, hoje, hoje) === null, "11 anos (12 amanhã) ainda usa o Espaço Kids")
 ok(validarCrianca(e, { ...crianca, dataNascimento: nascidaHa(12, 1) }, hoje, addDays(hoje, 2)) !== null, "idade vale na data do agendamento")
 ok(!agendamentoNoDia(e, "s2", amanha), "agendamento Kids não conta no limite do responsável (RN05)")
@@ -153,6 +173,82 @@ const novoDaFila = vencido.estado.agendamentos.find((a) => a.socioId === "s1" &&
 ok(!!novoDaFila && prazoConfirmacaoUso(novoDaFila).toISOString() === new Date(new Date(em(15)).getTime() + 15 * 60_000).toISOString(), "vaga vai para a fila, com nova tolerância a partir da contemplação")
 ok(liberarVagasSemUso({ ...semUso, agendamentos: [{ ...semUso.agendamentos[0], usoConfirmadoEm: em(5) }] }, hoje, em(30)).liberadas === 0, "uso confirmado não é liberado")
 ok(aplicarRotinas(e, hoje, agora, 9).relatorio.vagasLiberadas === 0, "mesas de hoje com uso confirmado continuam ocupadas")
+
+// US30: situação dos agendamentos no acompanhamento
+const agT = semUso.agendamentos[0]
+const usado = { ...agT, usoConfirmadoEm: em(5) }
+const situacao = (a: typeof agT, min: number) => situacaoAgendamento(a, new Date(em(min)))
+ok(situacao(agT, -10) === "agendado", "antes do turno: agendado")
+ok(situacao(agT, 10) === "aguardando_uso", "dentro da tolerância: aguardando confirmação")
+ok(situacao(agT, 15) === "prazo_esgotado", "15 min sem confirmação: tolerância esgotada")
+ok(situacao(usado, 20) === "em_uso" && liberarVagasSemUso({ ...semUso, agendamentos: [usado] }, hoje, em(200)).liberadas === 0, "uso confirmado: em uso, com a vaga garantida até o fim do turno")
+ok(situacao(usado, 4 * 60) === "utilizado" && situacao(agT, 4 * 60) === "encerrado", "turno encerrado: utilizado ou encerrado sem confirmação")
+ok(situacao({ ...agT, status: "nao_compareceu" }, 20) === "nao_compareceu", "não compareceu")
+const kidsEmUso = confirmado.estado.agendamentos.find((a) => a.id === "ag6")!
+ok(situacaoAgendamento(kidsEmUso, new Date()) === "em_uso" && !!kidsEmUso.crianca, "Espaço Kids: uso da criança confirmado fica em uso")
+const tardio = { ...agT, criadoEm: em(60) }
+ok(situacao(tardio, 70) === "aguardando_uso" && prazoConfirmacaoUso(tardio).toISOString() === em(75), "agendado com o turno em andamento: tolerância conta do agendamento")
+ok(
+  liberarVagasSemUso({ ...semUso, agendamentos: [tardio] }, hoje, em(74)).liberadas === 0 &&
+    liberarVagasSemUso({ ...semUso, agendamentos: [tardio] }, hoje, em(75)).liberadas === 1,
+  "não comparecimento identificado 15 min depois do agendamento feito no turno",
+)
+ok(turnoDoMomento(7) === "manha" && turnoDoMomento(12) === "tarde" && turnoDoMomento(17) === "noite", "turno exibido por padrão conforme a hora")
+
+// US30: transferência da vaga e regras da fila
+const comFila = {
+  ...semUso,
+  agendamentos: [
+    agT,
+    // o primeiro da fila já tem agendamento à noite no mesmo dia
+    { id: "t3", mesaId: "mesa1", socioId: "s1", data: hoje, turno: "noite" as const, status: "confirmado" as const, origem: "direto" as const, criadoEm: em(-250) },
+  ],
+  fila: [
+    { id: "q1", socioId: "s1", data: hoje, turno: "tarde" as const, criadoEm: em(-200), status: "aguardando" as const },
+    { id: "q2", socioId: "s3", data: hoje, turno: "tarde" as const, criadoEm: em(-150), status: "aguardando" as const },
+    { id: "q3", socioId: "s4", data: hoje, turno: "tarde" as const, criadoEm: em(-140), status: "aguardando" as const },
+  ],
+}
+const ausencia = registrarNaoComparecimentoNoEstado(comFila, "t1", em(16))
+const t1 = ausencia.estado.agendamentos.find((a) => a.id === "t1")!
+ok(t1.status === "nao_compareceu", "não comparecimento registrado")
+ok(
+  ausencia.contemplado?.socioId === "s3" && ausencia.contemplado.mesaId === "mesa2" && ausencia.contemplado.origem === "fila",
+  "primeiro da fila com agendamento no dia é ignorado e a vaga vai para o próximo",
+)
+ok(ausencia.ignorados === 1 && ausencia.estado.fila.find((f) => f.id === "q1")?.status === "desistiu", "quem foi ignorado sai da fila")
+const q2 = ausencia.estado.fila.find((f) => f.id === "q2")
+ok(q2?.status === "contemplado" && q2.agendamentoId === ausencia.contemplado?.id, "contemplado: agendamento em nome dele e saída da fila")
+ok(filaDoTurno(ausencia.estado, hoje, "tarde").map((f) => f.id).join() === "q3", "o restante da fila continua aguardando")
+const destino = destinoDaVaga(ausencia.estado, t1)
+ok(destino.tipo === "fila" && destino.agendamento.socioId === "s3", "destino da vaga: transferida para o contemplado")
+const movimentos = movimentacoesDoTurno(ausencia.estado, hoje, "tarde")
+ok(
+  movimentos[0].tipo === "contemplado" && movimentos.some((m) => m.tipo === "nao_compareceu" && m.destino?.tipo === "fila"),
+  "movimentações mostram a ausência e a transferência",
+)
+// a API devolve só a fila que ainda aguarda: a comparação acha o contemplado e os ignorados
+const respostaApi = { ...ausencia.estado, fila: ausencia.estado.fila.filter((f) => f.status === "aguardando") }
+const viaApi = transferenciaDaVaga(comFila, respostaApi, agT)
+ok(viaApi.contemplado?.socioId === "s3" && viaApi.ignorados === 1, "transferência identificada na resposta da API")
+const automatico = liberarVagasSemUso(comFila, hoje, em(15)).estado
+ok(
+  automatico.agendamentos.some((a) => a.socioId === "s3" && a.origem === "fila") && automatico.fila.find((f) => f.id === "q1")?.status === "desistiu",
+  "rotina automática aplica as mesmas regras de fila",
+)
+
+// US30: fila vazia, a vaga volta a ficar disponível
+const semFila = registrarNaoComparecimentoNoEstado({ ...semUso, fila: [] }, "t1", em(16))
+ok(!semFila.contemplado && mesasLivres(semFila.estado, hoje, "tarde").some((m) => m.id === "mesa2"), "fila vazia: vaga disponível para novo agendamento")
+ok(destinoDaVaga(semFila.estado, semFila.estado.agendamentos[0]).tipo === "livre", "destino da vaga: livre")
+const reagendada = {
+  ...semFila.estado,
+  agendamentos: [
+    ...semFila.estado.agendamentos,
+    { id: "t4", mesaId: "mesa2", socioId: "s4", data: hoje, turno: "tarde" as const, status: "confirmado" as const, origem: "direto" as const, criadoEm: em(20) },
+  ],
+}
+ok(destinoDaVaga(reagendada, reagendada.agendamentos[0]).tipo === "direto", "vaga livre agendada de novo aparece como reagendada")
 
 // Com os dados no banco, a fila e as vagas sem uso ficam com o servidor
 const semAg1 = { ...e, agendamentos: e.agendamentos.filter((a) => a.id !== "ag1") }

@@ -307,7 +307,7 @@ export function criarEstadoInicial(): Estado {
         telefone: "82999110005",
         email: "lucas.lima@email.com",
         endereco: enderecoPadrao("Rua Boa Vista", "300", "Cacimbas", "57309010"),
-        dataNascimento: "2009-09-05",
+        dataNascimento: addDays(d(-17 * 365), -100), // sempre 17 anos: tem conta, mas não é responsável no Espaço Kids
         senha: senhaPadrao,
         ativo: true,
         dataCadastro: d(-40),

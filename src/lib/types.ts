@@ -229,6 +229,19 @@ export interface Agendamento {
   usoConfirmadoEm?: string // ISO datetime — funcionário confirmou que o espaço está em uso (US30)
 }
 
+// Situação exibida no acompanhamento (US30), derivada do status, do uso confirmado e do
+// horário: "em uso" é o agendamento confirmado com o uso registrado; "tolerância esgotada"
+// dura até a rotina (ou o administrador) registrar o não comparecimento
+export type SituacaoAgendamento =
+  | "agendado"
+  | "aguardando_uso"
+  | "prazo_esgotado"
+  | "em_uso"
+  | "utilizado" // uso confirmado e turno encerrado
+  | "nao_compareceu"
+  | "cancelado"
+  | "encerrado" // turno encerrado sem confirmação de uso
+
 export interface EntradaFila {
   id: string
   socioId: string

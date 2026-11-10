@@ -1,25 +1,37 @@
 import { useMemo, useState } from "react"
-import { CalendarClock, Clock, Users, ListOrdered, X, UserRound, Baby, CheckCircle2 } from "lucide-react"
+import { CalendarClock, Clock, Users, ListOrdered, X, UserRound, Baby, CheckCircle2, ClipboardCheck, UserX } from "lucide-react"
 import { useStore, type ResultadoAgendamento } from "@/lib/store"
 import { Abas, Aviso, Badge, Button, Campo, Card, CardHeader, Confirmar, Input, Select, Vazio, useAcao } from "@/components/ui"
-import { IDADE_MAXIMA_KIDS, IDADE_MINIMA_SOCIO, TOLERANCIA_USO_MINUTOS, horarioTurno, labelEspaco, labelTurno } from "@/lib/constants"
+import {
+  IDADE_MAXIMA_KIDS,
+  IDADE_MINIMA_RESPONSAVEL_KIDS,
+  IDADE_MINIMA_SOCIO,
+  TOLERANCIA_USO_MINUTOS,
+  corSituacaoAgendamento,
+  horarioTurno,
+  labelEspaco,
+  labelSituacaoAgendamento,
+  labelTurno,
+} from "@/lib/constants"
 import {
   agendamentosDoTurno,
+  destinoDaVaga,
   espacoDaFila,
   espacoDoAgendamento,
   filaDoTurno,
   mesasDoEspaco,
   prazoConfirmacaoUso,
+  situacaoAgendamento,
   turnoEncerrado,
+  validarResponsavelKids,
 } from "@/lib/regras"
-import { addDays, cn, formatCpf, formatDate, idade, mascararCpf, primeiroNome } from "@/lib/utils"
+import { navegar } from "@/lib/navigation"
+import { addDays, cn, formatCpf, formatDate, formatHora, idade, mascararCpf, primeiroNome } from "@/lib/utils"
 import type { Agendamento, CriancaKids, EspacoMesa, Turno } from "@/lib/types"
 
 const TURNOS: Turno[] = ["manha", "tarde", "noite"]
 
 const criancaVazia = (): CriancaKids => ({ nome: "", cpf: "", dataNascimento: "" })
-
-const horaMinuto = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
 
 export function MesasPage() {
   const store = useStore()
@@ -35,6 +47,7 @@ export function MesasPage() {
     agendarKids,
     entrarNaFilaKids,
     confirmarUso,
+    registrarNaoComparecimento,
     cancelarAgendamento,
     desistirDaFila,
     getSocio,
@@ -53,6 +66,8 @@ export function MesasPage() {
   const horaAtual = new Date().getHours()
   const socioId = ehAdmin ? socioSel : socioLogado?.id ?? ""
   const kids = espaco === "kids"
+  // US29: o sócio-leitor com menos de 18 anos não pode ser responsável no Espaço Kids
+  const recusaResponsavel = kids && !ehAdmin && socioLogado ? validarResponsavelKids(socioLogado, data) : null
   const mesasEspaco = mesasDoEspaco(store, espaco)
 
   // A grade reflete a data e o espaço escolhidos
@@ -101,16 +116,19 @@ export function MesasPage() {
   }
 
   const nomeMesa = (id: string) => store.mesas.find((m) => m.id === id)?.nome ?? "Mesa"
+  const nomeDaVaga = (a: Agendamento) => (a.crianca ? a.crianca.nome : nomeSocio(a.socioId))
 
   // RNF06: os dados da criança só aparecem para o responsável e para a administração
   const podeVer = (a: { socioId: string }) => ehAdmin || a.socioId === socioLogado?.id
 
-  // Lista do sócio: seus agendamentos e posições na fila; o administrador vê os da data escolhida
+  // Lista do sócio: seus agendamentos (inclusive o não comparecimento, US30) e posições na
+  // fila; o administrador vê os da data escolhida
+  const agora = new Date()
   const meusAgendamentos = agendamentos
-    .filter((a) =>
-      ehAdmin
-        ? a.data === data && (a.status === "confirmado" || a.status === "nao_compareceu")
-        : a.status === "confirmado" && a.data >= hoje && a.socioId === socioLogado?.id,
+    .filter(
+      (a) =>
+        (a.status === "confirmado" || a.status === "nao_compareceu") &&
+        (ehAdmin ? a.data === data : a.data >= hoje && a.socioId === socioLogado?.id),
     )
     .sort((a, b) => a.data.localeCompare(b.data) || TURNOS.indexOf(a.turno) - TURNOS.indexOf(b.turno))
   const minhasFilas = fila
@@ -154,19 +172,31 @@ export function MesasPage() {
                   <option value="">Selecione...</option>
                   {socios
                     .filter((s) => s.ativo)
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.nome}
-                      </option>
-                    ))}
+                    .map((s) => {
+                      // US29: no Espaço Kids, só responsáveis de 18 anos ou mais
+                      const recusado = kids && !!validarResponsavelKids(s, data)
+                      return (
+                        <option key={s.id} value={s.id} disabled={recusado}>
+                          {s.nome}
+                          {recusado &&
+                            (s.dataNascimento
+                              ? ` (menor de ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos)`
+                              : " (sem data de nascimento)")}
+                        </option>
+                      )
+                    })}
                 </Select>
               )}
             </Campo>
           ) : kids ? (
-            <p className="text-sm text-muted-foreground text-pretty">
-              Agende uma mesa do Espaço Kids para uma criança de até {IDADE_MAXIMA_KIDS} anos sob a sua responsabilidade.
-              Cada criança pode usar <strong>1 turno por dia</strong>.
-            </p>
+            recusaResponsavel ? (
+              <Aviso tipo="alerta">{recusaResponsavel}</Aviso>
+            ) : (
+              <p className="text-sm text-muted-foreground text-pretty">
+                Agende uma mesa do Espaço Kids para uma criança de até {IDADE_MAXIMA_KIDS} anos sob a sua responsabilidade.
+                Cada criança pode usar <strong>1 turno por dia</strong>.
+              </p>
+            )
           ) : (
             <p className="text-sm text-muted-foreground text-pretty">
               Escolha a data e o turno. Cada sócio-leitor pode agendar <strong>1 turno por dia</strong> (RN05). Se todas as
@@ -180,7 +210,7 @@ export function MesasPage() {
         </p>
       </Card>
 
-      {kids && (
+      {kids && !recusaResponsavel && (
         <Card>
           <CardHeader
             titulo="Dados da criança"
@@ -231,7 +261,8 @@ export function MesasPage() {
             </div>
             <Aviso>
               O Espaço Kids é só para crianças de até {IDADE_MAXIMA_KIDS} anos. A partir dos {IDADE_MINIMA_SOCIO} anos, ela pode
-              criar a própria conta de sócio-leitor e pegar livros emprestados.
+              criar a própria conta de sócio-leitor e pegar livros emprestados, mas só pode ser responsável e agendar o Espaço
+              Kids para uma criança a partir dos {IDADE_MINIMA_RESPONSAVEL_KIDS} anos.
             </Aviso>
           </div>
         </Card>
@@ -324,13 +355,22 @@ export function MesasPage() {
             titulo={ehAdmin ? `Agendamentos de ${formatDate(data)}` : "Meus agendamentos"}
             descricao={ehAdmin ? "Confirme o uso quando o sócio-leitor (ou a criança) chegar ao espaço." : undefined}
             icone={<CalendarClock className="h-5 w-5" />}
+            acao={
+              ehAdmin && (
+                <Button variante="outline" tamanho="sm" onClick={() => navegar("acompanhamento")}>
+                  <ClipboardCheck className="h-4 w-4" /> Acompanhar por turno
+                </Button>
+              )
+            }
           />
           <div className="divide-y divide-border">
             {meusAgendamentos.length === 0 && <Vazio>Nenhum agendamento.</Vazio>}
             {meusAgendamentos.map((a) => {
               const encerradoAg = turnoEncerrado(a.data, a.turno, hoje, horaAtual)
               const ativo = a.status === "confirmado"
-              const aguardandoUso = ativo && !a.usoConfirmadoEm && a.data === hoje && !encerradoAg
+              const situacao = situacaoAgendamento(a, agora)
+              const aguardandoUso = a.data === hoje && (situacao === "agendado" || situacao === "aguardando_uso")
+              const destino = situacao === "nao_compareceu" ? destinoDaVaga(store, a) : null
               const ehKids = espacoDoAgendamento(store, a) === "kids"
               return (
                 <div key={a.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -338,8 +378,9 @@ export function MesasPage() {
                     <p className="flex flex-wrap items-center gap-2 font-medium">
                       {nomeMesa(a.mesaId)} · {labelTurno[a.turno]}
                       {ehKids && <Badge className="bg-accent/15 text-accent">Espaço Kids</Badge>}
-                      {a.usoConfirmadoEm && <Badge className="bg-success/15 text-success">Em uso</Badge>}
-                      {a.status === "nao_compareceu" && <Badge className="bg-muted text-muted-foreground">Não compareceu</Badge>}
+                      {situacao !== "agendado" && (
+                        <Badge className={corSituacaoAgendamento[situacao]}>{labelSituacaoAgendamento[situacao]}</Badge>
+                      )}
                     </p>
                     {a.crianca && podeVer(a) && (
                       <p className="text-sm">
@@ -359,7 +400,21 @@ export function MesasPage() {
                     </p>
                     {aguardandoUso && (
                       <p className="text-xs text-warning-foreground">
-                        Confirmar o uso até {horaMinuto(prazoConfirmacaoUso(a))}, senão a vaga é liberada.
+                        Confirmar o uso até {formatHora(prazoConfirmacaoUso(a))}, senão a vaga é liberada.
+                      </p>
+                    )}
+                    {situacao === "prazo_esgotado" && (
+                      <p className="text-xs text-danger">
+                        A tolerância terminou às {formatHora(prazoConfirmacaoUso(a))}: a vaga será liberada.
+                      </p>
+                    )}
+                    {destino && (
+                      <p className="text-xs text-muted-foreground">
+                        {destino.tipo === "fila"
+                          ? `Sem confirmação de uso: a vaga foi transferida${ehAdmin ? ` para ${nomeDaVaga(destino.agendamento)}` : ""}, da fila de espera.`
+                          : destino.tipo === "direto"
+                            ? "Sem confirmação de uso: a vaga foi liberada e já foi agendada de novo."
+                            : "Sem confirmação de uso: a vaga foi liberada para novo agendamento."}
                       </p>
                     )}
                   </div>
@@ -367,6 +422,11 @@ export function MesasPage() {
                     {ehAdmin && aguardandoUso && (
                       <Button variante="success" tamanho="sm" onClick={() => executar(() => confirmarUso(a.id))}>
                         <CheckCircle2 className="h-4 w-4" /> Confirmar uso
+                      </Button>
+                    )}
+                    {ehAdmin && situacao === "prazo_esgotado" && (
+                      <Button variante="danger" tamanho="sm" onClick={() => executar(() => registrarNaoComparecimento(a.id))}>
+                        <UserX className="h-4 w-4" /> Não compareceu
                       </Button>
                     )}
                     {ativo && !encerradoAg && (

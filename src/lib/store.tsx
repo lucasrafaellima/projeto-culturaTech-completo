@@ -46,6 +46,7 @@ import {
   STATUS_DESBASTAVEIS,
   LETRAS_SECAO,
   IDADE_MAXIMA_KIDS,
+  IDADE_MINIMA_RESPONSAVEL_KIDS,
   IDADE_MINIMA_SOCIO,
   TOLERANCIA_USO_MINUTOS,
   categoriaEmprestavel,
@@ -64,6 +65,7 @@ import {
   emailValido,
   formatCurrency,
   formatDate,
+  formatHora,
   hojeISO,
   idade,
   isbnValido,
@@ -83,6 +85,7 @@ import {
   liberarMesasDoSocio,
   espacoDoAgendamento,
   validarCrianca,
+  validarResponsavelKids,
   debitos as calcDebitos,
   emprestimoAtivoDoExemplar,
   emprestimosAtivos,
@@ -94,10 +97,13 @@ import {
   motivoBloqueio,
   nomesAutores,
   ok,
+  prazoConfirmacaoUso,
   processarFila,
+  registrarNaoComparecimentoNoEstado,
   reservaAtivaDoExemplar,
   reservasAtivas,
   socioBloqueado as calcBloqueio,
+  transferenciaDaVaga,
   turnoEncerrado,
   type Debitos,
   type RelatorioRotina,
@@ -311,6 +317,9 @@ interface StoreContextType extends Estado {
   ) => Promise<ResultadoAgendamento>
   entrarNaFilaKids: (socioId: string, data: string, turno: Turno, crianca: CriancaKids) => Promise<ResultadoAgendamento>
   confirmarUso: (agendamentoId: string) => Promise<Resultado>
+  registrarNaoComparecimento: (agendamentoId: string) => Promise<Resultado>
+  // recarrega agendamentos e fila (do banco, que aplica a tolerância, ou pela rotina local)
+  atualizarMesas: () => Promise<Resultado>
 
   // parcerias (RF13 / RN25 / RN26)
   salvarReceptor: (dados: DadosReceptor, id?: string) => Promise<Resultado>
@@ -1079,7 +1088,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const anos = idade(dataNascimento, hoje)
       if (anos > 120) return "Data de nascimento inválida. Confira o ano."
       if (anos < IDADE_MINIMA_SOCIO) {
-        return `O cadastro de sócio-leitor é permitido a partir dos ${IDADE_MINIMA_SOCIO} anos. Crianças de até ${IDADE_MAXIMA_KIDS} anos usam o Espaço Kids pelo agendamento de um sócio-leitor responsável.`
+        return `O cadastro de sócio-leitor é permitido a partir dos ${IDADE_MINIMA_SOCIO} anos. Crianças de até ${IDADE_MAXIMA_KIDS} anos usam o Espaço Kids pelo agendamento de um sócio-leitor responsável, de ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos ou mais.`
       }
       return null
     }
@@ -1820,12 +1829,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!ehAdmin() && !ehSocio()) return { erro: falha("Somente sócios-leitores podem agendar o Espaço Kids (RN06).") }
       const socio = ref.current.socios.find((s) => s.id === socioDaOperacao(socioIdParam))
       if (!socio || !socio.ativo) return { erro: falha("Somente sócios-leitores ativos podem agendar o Espaço Kids (RN06).") }
+      const erroResponsavel = validarResponsavelKids(socio, data)
+      if (erroResponsavel) return { erro: falha(erroResponsavel) }
       const erroTurno = validarTurno(data, turno)
       if (erroTurno) return { erro: falha(erroTurno) }
       const erro = validarCrianca(ref.current, c, hoje, data)
       if (erro) return { erro: { ok: false, mensagem: erro.mensagem, campo: erro.campo } }
       const crianca = { nome: c.nome.trim().replace(/\s+/g, " "), cpf: somenteDigitos(c.cpf), dataNascimento: c.dataNascimento }
       return { socio, crianca }
+    }
+
+    // Com a API, confere o responsável (18 anos ou mais) antes de enviar, com o cadastro já
+    // carregado no navegador; sem o cadastro, quem decide é o servidor
+    const responsavelRecusado = (socioIdParam: string, data: string): string | null => {
+      const socio = ref.current.socios.find((s) => s.id === socioDaOperacao(socioIdParam))
+      return socio && data ? validarResponsavelKids(socio, data) : null
     }
 
     const agendarKids = async (
@@ -1837,6 +1855,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ): Promise<ResultadoAgendamento> => {
       if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar o Espaço Kids (RN06).")
       if (mesasViaApi()) {
+        const recusa = responsavelRecusado(socioIdParam, data)
+        if (recusa) return falha(recusa)
         return respostaMesas(await agendarNaApi(sessao.token!, pedidoMesa(socioIdParam, data, turno, { mesaId, crianca: c })))
       }
       const p = prepararKids(socioIdParam, data, turno, c)
@@ -1879,7 +1899,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       c: CriancaKids,
     ): Promise<ResultadoAgendamento> => {
       if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar o Espaço Kids (RN06).")
-      if (mesasViaApi()) return respostaMesas(await entrarNaFilaNaApi(sessao.token!, pedidoMesa(socioIdParam, data, turno, { crianca: c })))
+      if (mesasViaApi()) {
+        const recusa = responsavelRecusado(socioIdParam, data)
+        if (recusa) return falha(recusa)
+        return respostaMesas(await entrarNaFilaNaApi(sessao.token!, pedidoMesa(socioIdParam, data, turno, { crianca: c })))
+      }
       const p = prepararKids(socioIdParam, data, turno, c)
       if ("erro" in p) return p.erro
       const atual = ref.current
@@ -1910,6 +1934,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // a confirmação encerra a fila de espera daquele turno (US29).
     const confirmarUso = async (id: string): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
+      // US30: esgotada a tolerância, a vaga já é da fila (ou fica livre)
+      const conhecido = ref.current.agendamentos.find((a) => a.id === id)
+      if (conhecido?.status === "confirmado" && !conhecido.usoConfirmadoEm && new Date() >= prazoConfirmacaoUso(conhecido)) {
+        return falha(
+          `A tolerância de ${TOLERANCIA_USO_MINUTOS} minutos terminou às ${formatHora(prazoConfirmacaoUso(conhecido))}: registre o não comparecimento.`,
+        )
+      }
       if (viaApi()) return respostaMesas(await confirmarUsoNaApi(sessao.token!, id))
       const atual = ref.current
       const ag = atual.agendamentos.find((a) => a.id === id)
@@ -1924,6 +1955,78 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         `Uso confirmado: ${quem} está no espaço.` +
           (retirados > 0 ? ` ${retirados} sócio(s)-leitor(es) foram retirados da fila de espera do Espaço Kids deste turno.` : ""),
       )
+    }
+
+    // US30: o não comparecimento só pode ser registrado no dia, com o turno em
+    // andamento e depois da tolerância de confirmação de uso
+    const conferirAusencia = (ag: Agendamento): string | null => {
+      if (ag.status === "nao_compareceu") return "O não comparecimento deste agendamento já foi registrado."
+      if (ag.status !== "confirmado") return "Agendamento não encontrado."
+      if (ag.usoConfirmadoEm) return "O uso deste agendamento já foi confirmado."
+      if (ag.data !== hoje) return "O não comparecimento só pode ser registrado no dia do agendamento."
+      if (turnoEncerrado(ag.data, ag.turno, hoje, new Date().getHours())) return "O turno já foi encerrado."
+      const prazo = prazoConfirmacaoUso(ag)
+      if (new Date() < prazo) {
+        return `Ainda dentro da tolerância de ${TOLERANCIA_USO_MINUTOS} minutos: o não comparecimento pode ser registrado a partir das ${formatHora(prazo)}.`
+      }
+      return null
+    }
+
+    const mensagemDaVaga = (
+      atual: Estado,
+      ag: Agendamento,
+      { contemplado, ignorados }: { contemplado: Agendamento | null; ignorados: number },
+    ) => {
+      const mesa = atual.mesas.find((m) => m.id === ag.mesaId)?.nome ?? "Mesa"
+      const pulados =
+        ignorados > 0
+          ? ` ${ignorados} sócio(s)-leitor(es) da fila foram ignorados por já terem agendamento neste dia (RN05).`
+          : ""
+      if (!contemplado) {
+        const motivo = ignorados > 0 ? "Ninguém da fila pôde receber a vaga" : "Sem fila de espera"
+        return `Não comparecimento registrado. ${motivo}: a ${mesa} está livre para novo agendamento.${pulados}`
+      }
+      const socio = atual.socios.find((s) => s.id === contemplado.socioId)
+      const quem = contemplado.crianca
+        ? `${primeiroNome(contemplado.crianca.nome)}${socio ? ` (responsável: ${socio.nome})` : ""}`
+        : socio?.nome ?? "o próximo da fila"
+      return `Não comparecimento registrado. A vaga da ${mesa} foi transferida para ${quem}, que saiu da fila de espera.${pulados}`
+    }
+
+    const registrarNaoComparecimento = async (id: string): Promise<Resultado> => {
+      if (!ehAdmin()) return falha(NEGADO)
+      const antes = ref.current
+      const ag = antes.agendamentos.find((a) => a.id === id)
+      if (!ag) return falha("Agendamento não encontrado.")
+      const erro = conferirAusencia(ag)
+      if (erro) return falha(erro)
+      if (viaApi()) {
+        // o servidor aplica a tolerância ao ler as mesas: a consulta registra a ausência e repassa a vaga
+        const r = await mesasDaApi(sessao.token!)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        const depois = mesasParaEstado(ref.current, r.dados)
+        commit(depois)
+        const atualizado = depois.agendamentos.find((a) => a.id === id)
+        if (atualizado?.status === "nao_compareceu") return ok(mensagemDaVaga(antes, ag, transferenciaDaVaga(antes, depois, ag)))
+        if (!atualizado) return falha("Agendamento não encontrado.")
+        return falha(conferirAusencia(atualizado) ?? "O servidor ainda não liberou a vaga. Tente novamente em instantes.")
+      }
+      const r = registrarNaoComparecimentoNoEstado(antes, id, agora())
+      commit(r.estado)
+      return ok(mensagemDaVaga(antes, ag, r))
+    }
+
+    const atualizarMesas = async (): Promise<Resultado> => {
+      if (!ehAdmin() && !ehSocio()) return falha(NEGADO)
+      if (mesasViaApi()) {
+        const r = await mesasDaApi(sessao.token!)
+        if (r.tipo === "indisponivel") return falha("Servidor indisponível: não foi possível atualizar os agendamentos.")
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit(mesasParaEstado(ref.current, r.dados))
+        return ok("Agendamentos atualizados.")
+      }
+      rodarRotina(false)
+      return ok("Agendamentos atualizados.")
     }
 
     const entrarNaFila = async (socioIdParam: string, data: string, turno: Turno): Promise<ResultadoAgendamento> => {
@@ -2468,6 +2571,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       agendarKids,
       entrarNaFilaKids,
       confirmarUso,
+      registrarNaoComparecimento,
+      atualizarMesas,
       salvarReceptor,
       excluirReceptor,
       registrarDoacao,

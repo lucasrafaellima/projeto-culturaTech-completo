@@ -269,7 +269,11 @@ await preencher("CPF da criança", "715.304.928-23")
 await preencher("Data de nascimento", dataISO(-13 * 365))
 await agendarKids()
 await espera(300)
-ok((await texto()).includes("própria conta de sócio-leitor"), "criança com 12 anos ou mais recusada no Espaço Kids")
+t = await texto()
+ok(
+  t.includes("própria conta de sócio-leitor") && t.includes("responsável e agendar o Espaço Kids para uma criança a partir dos 18 anos"),
+  "criança com 12 anos ou mais recusada no Espaço Kids (responsável só aos 18)",
+)
 await preencher("Data de nascimento", dataISO(-7 * 365))
 await agendarKids()
 await espera(400)
@@ -408,6 +412,172 @@ await foto("15-importacao")
 await ir("#/backups")
 t = await texto()
 ok(t.includes("Automático"), "RNF05 backup automático do dia gerado")
+
+// Espaço Kids: o responsável precisa ter 18 anos ou mais (Lucas tem 17 nos dados de demonstração)
+await ir("#/mesas")
+await clicar("Espaço Kids")
+await espera(300)
+ok(
+  await js(`[...document.querySelectorAll('option')].some(o => o.innerText.includes('Lucas Ferreira Lima (menor de 18 anos)') && o.disabled)`),
+  "Espaço Kids: sócio-leitor menor de 18 anos não pode ser escolhido como responsável",
+)
+
+// ---------------- Acompanhamento das mesas (US30) ----------------
+// Relógio de teste: a partir do próximo carregamento, o app vê a hora de hoje escolhida
+// aqui (deslocamento guardado no localStorage, lido a cada leitura do relógio)
+await cdp("Page.addScriptToEvaluateOnNewDocument", {
+  source: `(() => {
+    const Real = Date
+    const desvio = () => Number(localStorage.getItem("ct-teste:desvio") || 0)
+    class Relogio extends Real {
+      constructor(...a) { if (a.length === 0) super(Real.now() + desvio()); else super(...a) }
+      static now() { return Real.now() + desvio() }
+    }
+    window.Date = Relogio
+  })()`,
+})
+const emHoje = (h, m) => {
+  const d = new Date()
+  d.setHours(h, m, 0, 0)
+  return d
+}
+const ajustarRelogio = (h, m) => js(`localStorage.setItem("ct-teste:desvio", "${emHoje(h, m).getTime() - Date.now()}")`)
+// linha do agendamento da pessoa (não a de quem passou a vaga para ela)
+const linhaDoTurno = (nome) =>
+  js(`[...document.querySelectorAll('[aria-label="Agendamentos do turno"] li')].find(li => li.innerText.replace(${JSON.stringify("para " + nome)}, "").includes(${JSON.stringify(nome)}))?.innerText ?? ""`)
+const textoPrincipal = () => js("document.querySelector('main').innerText")
+
+// Hoje à tarde: as 4 mesas de estudo ocupadas, Lucas sem uso confirmado; na fila, João (que já
+// tem a noite agendada) e depois Carla. No Espaço Kids, Helena sem uso e sem fila. À noite,
+// João e Pedro ainda sem confirmação.
+const ontem = new Date(Date.now() - 864e5)
+const agendado = (id, mesaId, socioId, turno, extra = {}) => ({
+  id, mesaId, socioId, data: dataISO(0), turno, status: "confirmado", origem: "direto", criadoEm: ontem.toISOString(), ...extra,
+})
+const cenario = {
+  agendamentos: [
+    agendado("us30-1", "mesa1", "s3", "tarde", { usoConfirmadoEm: emHoje(13, 5).toISOString() }),
+    agendado("us30-2", "mesa2", "s5", "tarde"),
+    agendado("us30-3", "mesa3", "s4", "tarde", { usoConfirmadoEm: emHoje(13, 6).toISOString() }),
+    agendado("us30-4", "mesa4", "s1", "tarde", { usoConfirmadoEm: emHoje(13, 7).toISOString() }),
+    agendado("us30-5", "kids1", "s3", "tarde", { crianca: { nome: "Helena Souza Lima", cpf: "71530492823", dataNascimento: dataISO(-6 * 365) } }),
+    agendado("us30-6", "mesa1", "s2", "noite"),
+    agendado("us30-7", "mesa3", "s4", "noite"),
+  ],
+  fila: [
+    { id: "us30-f1", socioId: "s2", data: dataISO(0), turno: "tarde", criadoEm: ontem.toISOString(), status: "aguardando" },
+    { id: "us30-f2", socioId: "s9", data: dataISO(0), turno: "tarde", criadoEm: new Date(ontem.getTime() + 6e4).toISOString(), status: "aguardando" },
+  ],
+}
+await js(`(() => {
+  const e = JSON.parse(localStorage.getItem("culturatech:estado"))
+  const c = ${JSON.stringify(cenario)}
+  e.socios.push({ ...e.socios.find((s) => s.id === "s3"), id: "s9", nome: "Carla Mendes Rocha", cpf: "11144477735", email: "carla@example.com" })
+  e.agendamentos.push(...c.agendamentos)
+  e.fila.push(...c.fila)
+  localStorage.setItem("culturatech:estado", JSON.stringify(e))
+})()`)
+await ajustarRelogio(14, 30)
+await cdp("Page.reload")
+await espera(2000)
+await ir("#/acompanhamento")
+await espera(400)
+t = await textoPrincipal()
+ok(t.includes("Tarde") && t.includes("Mesa 1") && t.includes("Ana Beatriz Costa") && t.includes("Em uso"), "US30 lista do turno com sócio-leitor, mesa e situação")
+ok(t.includes("Criança: Helena Souza Lima") && t.includes("Responsável: Ana Beatriz Costa"), "US30 no Espaço Kids aparece o nome da criança")
+let linha = await linhaDoTurno("Lucas Ferreira Lima")
+ok(linha.includes("Não compareceu") && linha.includes("Vaga transferida para Carla Mendes Rocha"), "US30 sem uso em 15 min: não compareceu e a vaga vai para a fila")
+linha = await linhaDoTurno("Carla Mendes Rocha")
+ok(linha.includes("Aguardando confirmação") && linha.includes("contemplado pela fila"), "US30 agendamento registrado em nome do contemplado")
+ok(t.includes("Ninguém na fila de espera"), "US30 quem já tinha agendamento no dia foi ignorado e o contemplado saiu da fila")
+linha = await linhaDoTurno("Helena Souza Lima")
+ok(
+  linha.includes("Não compareceu") && linha.includes("Vaga liberada para novo agendamento") && t.includes("Livres para agendamento: Mesa Kids 1"),
+  "US30 sem fila, a vaga volta a ficar disponível",
+)
+ok(t.includes("Carla Mendes Rocha foi contemplado(a) pela fila de espera com a Mesa 2"), "US30 movimentações exibem a transferência da vaga")
+await foto("18-acompanhamento")
+await clicar("Confirmar uso")
+await espera(300)
+ok((await toast()).includes("Uso confirmado: Carla"), "US30 administrador confirma o uso")
+linha = await linhaDoTurno("Carla Mendes Rocha")
+ok(linha.includes("Em uso") && linha.includes("vaga garantida até as 17h"), "US30 uso confirmado: em uso, com a vaga garantida até o fim do turno")
+
+// Noite: dentro da tolerância não há registro de ausência; depois dela, o administrador registra
+await ajustarRelogio(18, 5)
+await cdp("Page.reload")
+await espera(2000)
+await ir("#/acompanhamento")
+await espera(400)
+linha = await linhaDoTurno("Pedro Henrique Santos")
+ok(
+  linha.includes("Aguardando confirmação") && !(await js("[...document.querySelectorAll('button')].some(b => b.innerText.includes('Registrar não comparecimento'))")),
+  "US30 dentro da tolerância o não comparecimento não pode ser registrado",
+)
+await ajustarRelogio(18, 20)
+await preencher("Espaço", "estudo") // nova renderização com o relógio adiantado, antes da rotina automática
+await espera(300)
+linha = await linhaDoTurno("Pedro Henrique Santos")
+ok(linha.includes("Tolerância esgotada") && !linha.includes("Confirmar uso"), "US30 tolerância esgotada: sem confirmação de uso")
+await js(`[...[...document.querySelectorAll('[aria-label="Agendamentos do turno"] li')].find(li => li.innerText.includes('Pedro Henrique Santos')).querySelectorAll('button')].find(b => b.innerText.includes('Registrar não comparecimento')).click()`)
+await espera(300)
+await js(`[...document.querySelectorAll('[role=dialog] button')].find(b => b.innerText.includes('Registrar não comparecimento')).click()`)
+await espera(400)
+ok((await toast()).includes("Sem fila de espera: a Mesa 3 está livre para novo agendamento"), "US30 não comparecimento registrado com a fila vazia")
+linha = await linhaDoTurno("Pedro Henrique Santos")
+t = await textoPrincipal()
+ok(linha.includes("Não compareceu") && /Livres para agendamento: .*Mesa 3/.test(t), "US30 a mesa volta a ficar disponível para novo agendamento")
+await foto("19-nao-comparecimento")
+
+// Controle de acesso: o sócio-leitor não acompanha, não confirma uso nem registra ausência
+await js(`localStorage.setItem("ct-teste:desvio", "0")`)
+await clicar("Sair")
+await espera(400)
+await ir("#/entrar")
+await digitar("#" + (await js("document.querySelector('input[autocomplete=username]').id")), "153.509.460-56")
+await digitar("input[autocomplete=current-password]", "123456")
+await js("document.querySelector('form').requestSubmit()")
+await espera(800)
+ok(!(await texto()).includes("Acompanhamento de Mesas"), "US30 acompanhamento fora do menu do sócio-leitor (RNF02)")
+await ir("#/acompanhamento")
+await espera(300)
+ok(!(await js("location.hash")).includes("acompanhamento"), "US30 sócio-leitor redirecionado ao abrir o acompanhamento")
+await ir("#/mesas")
+await espera(300)
+ok(
+  !(await js("[...document.querySelectorAll('button')].some(b => /Confirmar uso|Não compareceu|Registrar não comparecimento/.test(b.innerText))")),
+  "US30 sócio-leitor sem as ações de confirmar uso e registrar não comparecimento",
+)
+await clicar("Sair")
+await espera(400)
+
+// Sócio-leitor de 17 anos: tem conta, mas não agenda o Espaço Kids para uma criança
+await ir("#/entrar")
+await digitar("#" + (await js("document.querySelector('input[autocomplete=username]').id")), "861.904.237-87")
+await digitar("input[autocomplete=current-password]", "123456")
+await js("document.querySelector('form').requestSubmit()")
+await espera(800)
+await js("document.querySelector('[aria-label=Fechar]')?.click()")
+await ir("#/mesas")
+await clicar("Espaço Kids")
+await preencher("Data", dataISO(3))
+await espera(300)
+t = await textoPrincipal()
+ok(
+  t.includes("a partir dos 18 anos podem ser responsáveis") && !t.includes("Dados da criança"),
+  "sócio-leitor de 17 anos avisado de que só agenda o Espaço Kids a partir dos 18 anos",
+)
+await js(`[...document.querySelectorAll('button')].find(x => x.innerText.trim() === 'Agendar')?.click()`)
+await espera(300)
+ok((await toast()).includes("a partir dos 18 anos"), "agendamento do Espaço Kids por menor de 18 anos recusado")
+await foto("20-kids-responsavel-menor")
+await clicar("Sair")
+await espera(400)
+await ir("#/entrar")
+await digitar("input[autocomplete=username]", "admin")
+await digitar("input[autocomplete=current-password]", "admin123")
+await js("document.querySelector('form').requestSubmit()")
+await espera(800)
 
 // Persistência
 await cdp("Page.reload")

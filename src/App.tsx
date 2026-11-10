@@ -21,6 +21,7 @@ import { EntrarPage } from "@/pages/entrar"
 import { CadastroPage } from "@/pages/cadastro"
 import { MinhaAreaPage } from "@/pages/minha-area"
 import { MesasPage } from "@/pages/mesas"
+import { AcompanhamentoPage } from "@/pages/acompanhamento"
 import { AcervoPage } from "@/pages/acervo"
 import { SociosPage } from "@/pages/socios"
 import { CirculacaoPage } from "@/pages/circulacao"
@@ -49,6 +50,8 @@ function Pagina({ rota, parametro }: { rota: RotaId; parametro: string | null })
       return <MinhaAreaPage />
     case "mesas":
       return <MesasPage />
+    case "acompanhamento":
+      return <AcompanhamentoPage />
     case "acervo":
       return <AcervoPage />
     case "socios":

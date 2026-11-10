@@ -8,6 +8,7 @@ import {
   Users,
   ArrowLeftRight,
   CalendarClock,
+  ClipboardCheck,
   FolderArchive,
   Handshake,
   MailCheck,
@@ -26,6 +27,7 @@ export type RotaId =
   | "cadastro"
   | "minha-area"
   | "mesas"
+  | "acompanhamento"
   | "acervo"
   | "socios"
   | "circulacao"
@@ -57,6 +59,8 @@ export const itensNavegacao: ItemNav[] = [
   { id: "mesas", rotulo: "Mesas de Estudo", icone: CalendarClock, perfis: ["socio", "admin"], grupo: "socio" },
 
   // Administração
+  // US30: confirmação de uso e não comparecimento, por turno
+  { id: "acompanhamento", rotulo: "Acompanhamento de Mesas", icone: ClipboardCheck, perfis: ["admin"], grupo: "admin" },
   { id: "acervo", rotulo: "Acervo", icone: Library, perfis: ["admin"], grupo: "admin" },
   { id: "socios", rotulo: "Sócios-leitores", icone: Users, perfis: ["admin"], grupo: "admin" },
   { id: "circulacao", rotulo: "Circulação", icone: ArrowLeftRight, perfis: ["admin"], grupo: "admin" },
