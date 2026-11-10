@@ -1,23 +1,18 @@
 # Banco de dados — CulturaTech
 
-Modelo relacional para **PostgreSQL 16** no **Amazon RDS**, derivado de `src/lib/types.ts`, das regras em
+Modelo relacional para **PostgreSQL 17** no **Neon**, derivado de `src/lib/types.ts`, das regras em
 `src/lib/regras.ts`/`constants.ts` e do diagrama de classes (`modelo de classes/`).
 
-| Arquivo                       | Conteúdo                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `01_schema.sql`               | Tabelas, restrições, índices, triggers de regras de negócio e visões (schema `culturatech`)             |
-| `02_dados_exemplo.sql`        | Dados de demonstração com as mesmas contas e cenários do README do app                                  |
-| `03_ajuste_search_path.sql`   | Só para bancos criados antes de as funções fixarem o próprio `search_path`; rode uma vez                |
-| `04_localizacao_exemplar.sql` | Só para bancos criados antes da coluna `exemplar.localizacao`; rode uma vez (pode repetir sem problema) |
-| `05_indice_mural.sql`         | Só para bancos criados antes do índice `ix_publicacao_tipo_data` (filtro do mural); pode repetir         |
-| `06_data_nascimento.sql`      | Só para bancos criados antes da coluna `socio_leitor.data_nascimento` (US29); pode repetir               |
-| `07_mesas_espaco_kids.sql`    | Só para bancos criados antes do Espaço Kids (US29) e da confirmação de uso (US30) no banco: colunas, índices e dados fictícios de mesas e instituições; pode repetir |
-| `modelo_dados.png`            | Diagrama com todas as tabelas, colunas, tipos e chaves, gerado a partir de `01_schema.sql`               |
+| Arquivo                | Conteúdo                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `01_schema.sql`        | Tabelas, restrições, índices, triggers de regras de negócio e visões (schema `culturatech`) |
+| `02_dados_exemplo.sql` | Dados de demonstração com as mesmas contas e cenários do README do app                      |
+| `modelo_dados.png`     | Diagrama com todas as tabelas, colunas, tipos e chaves, gerado a partir de `01_schema.sql`  |
 
-> Banco novo: rode apenas `01_schema.sql` (e, se quiser os dados de demonstração, `02_dados_exemplo.sql`). Os arquivos
-> `03` a `07` são ajustes para bancos já existentes; num banco novo eles são desnecessários, mas inofensivos.
+> Rode os dois em um banco vazio, nessa ordem. O `02` é opcional fora da demonstração: ele cria a conta `admin` com a
+> senha `admin123`.
 >
-> Os PDFs de exemplo do repositório não cabem num `.sql` (os bytes ficam no S3): depois do `02`, com a API no ar, rode
+> Os PDFs de exemplo do repositório não cabem num `.sql` (os bytes ficam no bucket): depois do `02`, com a API no ar, rode
 > `npm run dados-pdf` em `server/`.
 
 ## Diagrama entidade-relacionamento
@@ -72,19 +67,20 @@ erDiagram
 - **Espaço Kids (US29)**: `mesa_estudo.espaco` separa as mesas de `estudo` e `kids`. A criança de até 11 anos não tem
   cadastro: quando o agendamento ou a entrada na fila é para ela, `crianca_nome`, `crianca_cpf` e `crianca_nascimento`
   ficam preenchidos, `socio_id` é o sócio responsável e a fila dessa entrada é a do Espaço Kids. A RN05 vale para cada
-  criança, pelo CPF (`ux_agendamento_crianca_dia`). `socio_leitor.data_nascimento` confere os 12 anos da conta própria;
-  é nula em cadastros migrados. Na anonimização do responsável, a data dele é apagada, o nome da criança vira um código
+  criança, pelo CPF (`ux_agendamento_crianca_dia`). `socio_leitor.data_nascimento` confere os 12 anos da conta própria
+  e os 18 anos de quem é responsável no Espaço Kids; é nula em cadastros migrados, que não podem ser responsáveis até a
+  data ser informada. Na anonimização do responsável, a data dele é apagada, o nome da criança vira um código
   e o CPF e o nascimento dela ficam nulos.
 - **Confirmação de uso (US30)**: `agendamento.uso_confirmado_em` registra quando o funcionário confirmou que o espaço
   está em uso. Sem a confirmação em até 15 minutos do início do turno (ou do agendamento, se feito depois), o
   agendamento passa a `nao_compareceu` e a vaga vai para o primeiro da fila. Quando o uso de uma mesa Kids é confirmado,
   quem aguardava na fila daquele turno do Espaço Kids sai dela com o status `retirada`.
-- **Arquivos**: imagens e PDFs ficam no **Amazon S3**; a tabela `arquivo` guarda só metadados e a chave do objeto
+- **Arquivos**: imagens e PDFs ficam em um bucket compatível com S3 (**Neon Object Storage**); a tabela `arquivo` guarda só metadados e a chave do objeto
   (`chave_storage`, no formato `<pasta>/<uuid>.<extensão>`, com as pastas `mural`, `acervo`, `documentos`, `socios` e
   `danos`). Banco relacional não é bom lugar para binários grandes.
 - **Listas do front-end viraram tabelas**: `autorIds` → `livro_autor` (com ordem — RN19), `historico` do empréstimo →
   `emprestimo_evento`, `pareceres` → `parecer_multa`, `tombamentos` → `movimentacao_exemplar`, `imagemIds` → tabelas de imagem.
-- **Backups**: a tela de backups do protótipo é substituída pelos backups automáticos e snapshots do RDS.
+- **Backups**: a tela de backups do protótipo guarda só cópias do navegador. Para copiar o banco, use `pg_dump`.
 - **Domínios** (status, categorias, turnos) usam `VARCHAR + CHECK` com os mesmos valores do `types.ts`,
   então o back-end pode trafegar os valores sem conversão.
 
@@ -110,53 +106,48 @@ erDiagram
 Cálculos dependentes da data (multa de R$ 1,00/dia, expiração de reservas e da fila, envio de e-mails) continuam na
 rotina diária do back-end; a visão `vw_situacao_socio` já entrega o débito corrente de cada sócio.
 
-## Como criar no Amazon RDS
+## Manual: banco e arquivos em produção (Neon)
 
-1. **Console AWS → RDS → Criar banco de dados**
-   - Método: _Criação padrão_ · Mecanismo: **PostgreSQL 16**
-   - Modelo: **Nível gratuito** (db.t3.micro / db.t4g.micro, 20 GB gp3)
-   - Identificador: `culturatech-db` · usuário mestre: `postgres` · defina uma senha forte
-   - Nome do banco inicial (em _Configuração adicional_): `culturatech`
-   - Backups automáticos: manter ligado (7 dias)
-2. **Conectividade**
-   - Para testes da equipe: _Acesso público = Sim_ e, no **Security Group**, liberar a porta **5432** apenas para os
-     IPs de vocês (`Meu IP`). Nunca libere `0.0.0.0/0`.
-   - Em produção, o ideal é acesso público = Não, com só o back-end (na mesma VPC) acessando o banco.
-3. Aguarde o status **Disponível** e copie o **endpoint** (ex.: `culturatech-db.xxxx.us-east-1.rds.amazonaws.com`).
-4. **Execute os scripts** (pelo `psql`, DBeaver, pgAdmin ou Azure Data Studio com extensão PostgreSQL):
+O projeto usa o **Neon** (plano Free) para o PostgreSQL e para o armazenamento de arquivos. Quem for rodar o código precisa
+de uma conta própria e de um `server/.env` (o arquivo não vai para o git; o modelo é `server/.env.example`).
 
-   ```bash
-   psql "host=<endpoint> port=5432 dbname=culturatech user=postgres sslmode=require" -f 01_schema.sql
-   psql "host=<endpoint> port=5432 dbname=culturatech user=postgres sslmode=require" -f 02_dados_exemplo.sql
-   ```
+**Banco.** Em um banco vazio, rode `01_schema.sql` e depois `02_dados_exemplo.sql` (opcional: cria a conta `admin` com a
+senha `admin123` e os cenários de demonstração). Os dois são independentes de provedor; funcionam em qualquer PostgreSQL
+16 ou superior com a extensão `pgcrypto`, que o Neon já oferece.
 
-   Se o banco já existia de antes, rode também os ajustes que faltarem: `03_ajuste_search_path.sql`,
-   `04_localizacao_exemplar.sql`, `05_indice_mural.sql`, `06_data_nascimento.sql` e `07_mesas_espaco_kids.sql`, nessa
-   ordem. Sem o `07`, o login pela API é recusado, porque as rotas de mesas não encontram as colunas novas.
+**O que preencher no `server/.env`:**
 
-5. **Crie um usuário próprio para a aplicação** (não use o `postgres` no back-end):
+| Variável | O que é |
+| --- | --- |
+| `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | dados da conexão **direta** do Neon (em **Connect**, com "Connection pooling" desligado) |
+| `DB_SSL` | `require` no Neon; `disable` em um PostgreSQL local |
+| `JWT_SECRET` | segredo longo e aleatório (mínimo de 32 caracteres); o comando para gerar está no `.env.example` |
+| `ARMAZENAMENTO` | `s3` para o bucket do Neon ou `disco` para a pasta `server/uploads` |
+| `S3_BUCKET`, `S3_REGIAO`, `S3_ENDPOINT` | nome do bucket, `AWS_REGION` e `AWS_ENDPOINT_URL_S3` (em **Connect > Storage > Parameters only**) |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | chaves do bucket, na mesma tela; o nome `AWS_*` é só convenção do SDK |
+| `FUSO_HORARIO` | opcional; fuso dos turnos das mesas (padrão `America/Maceio`) |
 
-   ```sql
-   CREATE ROLE app_culturatech LOGIN PASSWORD '<senha forte>';
-   GRANT USAGE ON SCHEMA culturatech TO app_culturatech;
-   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA culturatech TO app_culturatech;
-   GRANT USAGE ON ALL SEQUENCES IN SCHEMA culturatech TO app_culturatech;
-   ALTER ROLE app_culturatech SET search_path = culturatech, public;
-   ```
+**Pontos de atenção:**
 
-6. Teste rápido:
-
-   ```sql
-   SET search_path TO culturatech;
-   SELECT nome, bloqueado, total_multas, multa_corrente FROM vw_situacao_socio;
-   ```
-
-> ⚠️ Custos: fora do nível gratuito, uma instância parada ainda cobra armazenamento e o RDS religa sozinho após 7 dias
-> parado. Apague a instância (ou crie um snapshot) quando terminar o semestre.
+- **Conexão direta, não "pooled".** O host não pode ter `-pooler`: a API define o `search_path` ao conectar, e os scripts de
+  schema também devem usar a conexão direta.
+- **O armazenamento de arquivos (Object storage) precisa ser ligado na criação do projeto**, em **Services**, e só existe em algumas
+  regiões (por exemplo, AWS US East N. Virginia). O bucket deve ficar `private`: quem entrega os arquivos é a API, que
+  confere a permissão.
+- **Hibernação.** No plano Free o banco hiberna depois de 5 minutos sem uso, e a primeira requisição seguinte demora um
+  pouco mais. Os limites do Free são por projeto: 1 GB de banco, 5 GB de arquivos, 100 CU-horas de processamento por mês
+  e 5 GB de transferência.
+- **Arquivos de exemplo.** Depois do `02`, com a API no ar, `npm run dados-pdf` (em `server/`) envia os PDFs de exemplo.
+- **Conferir a configuração.** `npm run testar-s3` testa só o bucket; `/api/saude` testa o banco. Não rode as outras suítes
+  `npm run testar-*` contra o banco de produção: elas gravam dados de teste. Para elas, use um PostgreSQL local, recarregado
+  a cada rodada.
+- **Segredos.** Nunca coloque senha, chaves ou a URL de conexão em arquivos versionados. Se uma senha vazar, troque-a em
+  **Settings > Roles** do Neon e atualize o `.env`.
+- **Cópia do banco.** Os backups da tela do site guardam só dados do navegador; para copiar o banco, use `pg_dump`.
 
 ## Observação
 
-O front-end (React) não acessa o banco diretamente — e não deve: navegador nunca conecta no RDS. Quem usa estas tabelas
+O front-end (React) não acessa o banco diretamente — e não deve: navegador nunca conecta no banco. Quem usa estas tabelas
 é a API em [`server/`](../server/README.md), que cobre login e cadastro, acervo, circulação, sócios, repositório
 digital, mural, mesas de estudo e parcerias. Notificações e backups ainda ficam no navegador; a tabela `notificacao`
 existe aqui, mas ainda não tem rotas na API.

@@ -1,6 +1,6 @@
 -- ============================================================
 -- CulturaTech - Modelo físico do banco de dados
--- SGBD: PostgreSQL 16 (Amazon RDS)
+-- SGBD: PostgreSQL 17 (Neon)
 -- Baseado em src/lib/types.ts, src/lib/constants.ts e no diagrama
 -- de classes. Numeração de RF/RN/RNF conforme o Documento de
 -- Requisitos v3.2.
@@ -22,7 +22,7 @@ SET search_path TO culturatech;
 
 -- ------------------------------------------------------------
 -- Arquivos (imagens e PDFs)
--- Os bytes ficam no Amazon S3; o banco guarda só os metadados e a
+-- Os bytes ficam em um bucket compatível com S3; o banco guarda só os metadados e a
 -- chave do objeto. Substitui o IndexedDB do protótipo (RNF12/RNF13).
 -- ------------------------------------------------------------
 CREATE TABLE arquivo (
@@ -30,7 +30,7 @@ CREATE TABLE arquivo (
     nome_arquivo        VARCHAR(255) NOT NULL,
     mime                VARCHAR(100) NOT NULL
                         CHECK (mime IN ('image/webp', 'image/jpeg', 'image/png', 'application/pdf')),
-    chave_storage       VARCHAR(500) NOT NULL UNIQUE, -- chave no S3: <pasta>/<uuid>.<extensão>, ex.: acervo/<uuid>.pdf
+    chave_storage       VARCHAR(500) NOT NULL UNIQUE, -- chave no bucket: <pasta>/<uuid>.<extensão>, ex.: acervo/<uuid>.pdf
     tamanho_original    BIGINT NOT NULL CHECK (tamanho_original >= 0),
     tamanho_armazenado  BIGINT NOT NULL CHECK (tamanho_armazenado >= 0),
     compressao          VARCHAR(10) NOT NULL DEFAULT 'nenhuma'

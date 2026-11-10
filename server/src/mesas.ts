@@ -22,11 +22,12 @@ const LABEL_TURNO: Record<Turno, string> = { manha: "Manhã", tarde: "Tarde", no
 const DIAS_ANTECEDENCIA = 30
 const IDADE_MAXIMA_KIDS = 11
 const IDADE_MINIMA_SOCIO = 12
+const IDADE_MINIMA_RESPONSAVEL_KIDS = 18
 const TOLERANCIA_USO_MINUTOS = 15
 const AVISO_TOLERANCIA = `Apresente-se no balcão em até ${TOLERANCIA_USO_MINUTOS} minutos do início do turno; sem a confirmação de uso, a vaga é liberada.`
 const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil (RNF02)."
 
-// O RDS roda em UTC; os turnos seguem o relógio de Arapiraca (FUSO_HORARIO)
+// O banco roda em UTC; os turnos seguem o relógio de Arapiraca (FUSO_HORARIO)
 const FUSO = config.fusoHorario
 const AGORA_LOCAL = `(now() AT TIME ZONE '${FUSO}')`
 
@@ -161,11 +162,13 @@ async function conferirTurno(c: Consulta, { data, turno }: Pedido) {
   return hoje
 }
 
-// RN06. FOR NO KEY UPDATE serializa os pedidos do mesmo sócio sem bloquear a chave estrangeira
+// RN06 e, no Espaço Kids, a idade do responsável na data do agendamento (validarResponsavelKids).
+// FOR NO KEY UPDATE serializa os pedidos do mesmo sócio sem bloquear a chave estrangeira
 // das inserções de processarFila, que já seguram a trava do turno: FOR UPDATE causaria deadlock.
-async function conferirSocio(c: pg.PoolClient, socioId: string, kids: boolean) {
-  const { rows } = await c.query<{ ativo: boolean; anonimizado: boolean }>(
-    "SELECT ativo, anonimizado FROM socio_leitor WHERE id = $1 FOR NO KEY UPDATE",
+async function conferirSocio(c: pg.PoolClient, socioId: string, kids: boolean, dataAgendamento: string) {
+  const { rows } = await c.query<{ nome: string; ativo: boolean; anonimizado: boolean; data_nascimento: string | null }>(
+    `SELECT nome, ativo, anonimizado, to_char(data_nascimento, 'YYYY-MM-DD') AS data_nascimento
+       FROM socio_leitor WHERE id = $1 FOR NO KEY UPDATE`,
     [socioId],
   )
   const s = rows[0]
@@ -175,6 +178,19 @@ async function conferirSocio(c: pg.PoolClient, socioId: string, kids: boolean) {
       kids
         ? "Somente sócios-leitores ativos podem agendar o Espaço Kids (RN06)."
         : "Somente sócios-leitores ativos podem agendar mesas (RN06).",
+    )
+  }
+  if (!kids) return
+  if (!s.data_nascimento) {
+    throw new ErroRegra(
+      409,
+      `O cadastro de ${primeiroNome(s.nome)} está sem data de nascimento. Para ser responsável no Espaço Kids é preciso ter ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos ou mais: a data de nascimento precisa ser informada no cadastro.`,
+    )
+  }
+  if (idade(s.data_nascimento, dataAgendamento) < IDADE_MINIMA_RESPONSAVEL_KIDS) {
+    throw new ErroRegra(
+      409,
+      `Somente sócios-leitores a partir dos ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos podem ser responsáveis e agendar o Espaço Kids para uma criança.`,
     )
   }
 }
@@ -201,7 +217,7 @@ async function conferirCrianca(c: pg.PoolClient, cr: Crianca, hoje: string, data
   if (idade(cr.dataNascimento, dataAgendamento) > IDADE_MAXIMA_KIDS) {
     throw new ErroRegra(
       409,
-      `O Espaço Kids é só para crianças de até ${IDADE_MAXIMA_KIDS} anos. A partir dos ${IDADE_MINIMA_SOCIO} anos, ela pode criar a própria conta de sócio-leitor.`,
+      `O Espaço Kids é só para crianças de até ${IDADE_MAXIMA_KIDS} anos. A partir dos ${IDADE_MINIMA_SOCIO} anos, ela pode criar a própria conta de sócio-leitor, mas só pode ser responsável e agendar o Espaço Kids para uma criança a partir dos ${IDADE_MINIMA_RESPONSAVEL_KIDS} anos.`,
       { campo: "dataNascimento" },
     )
   }
@@ -361,7 +377,7 @@ rotasMesas.post("/agendamentos", exigirLogin, async (req, res) => {
   await rotinaDasMesas()
 
   const mesa = await emTransacao(async (c) => {
-    await conferirSocio(c, socioId, !!cr)
+    await conferirSocio(c, socioId, !!cr, pedido.data)
     const hoje = await conferirTurno(c, pedido)
     if (cr) await conferirCrianca(c, cr, hoje, pedido.data)
     await travarTurno(c, pedido.data, pedido.turno, espaco)
@@ -504,7 +520,7 @@ rotasMesas.post("/fila", exigirLogin, async (req, res) => {
   await rotinaDasMesas()
 
   const posicao = await emTransacao(async (c) => {
-    await conferirSocio(c, socioId, !!cr)
+    await conferirSocio(c, socioId, !!cr, pedido.data)
     const hoje = await conferirTurno(c, pedido)
     if (cr) await conferirCrianca(c, cr, hoje, pedido.data)
     await travarTurno(c, pedido.data, pedido.turno, espaco)

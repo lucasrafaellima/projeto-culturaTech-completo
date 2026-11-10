@@ -57,7 +57,7 @@ const sufixo = Date.now().toString(36).toUpperCase()
 const admin = await entrar("admin", "admin123")
 const criados: string[] = []
 
-async function novoSocio(apelido: string) {
+async function novoSocio(apelido: string, dataNascimento = "1990-05-20") {
   const cpf = cpfAleatorio()
   const r = await chamar(
     "POST",
@@ -71,7 +71,7 @@ async function novoSocio(apelido: string) {
       endereco: { rua: "Rua do Teste", numero: "1", bairro: "Centro", cep: "57300000" },
       senha: "senha-teste",
       consentimentoLgpd: true,
-      dataNascimento: "1990-05-20",
+      dataNascimento,
     },
     admin,
   )
@@ -212,6 +212,31 @@ const crianca = (nome: string, anos = 6) => {
   return { nome, cpf: cpfAleatorio(), dataNascimento: hojeMais(-365 * anos - 30) }
 }
 const bia = crianca("Bia Souza")
+
+// Quem pode ser responsável: só a partir dos 18 anos, na data do agendamento
+const anosAntes = (data: string, anos: number) => `${Number(data.slice(0, 4)) - anos}${data.slice(4)}`
+const dozeAnos = await novoSocio("Doze", anosAntes(hojeLocal, 12))
+const dezessete = await novoSocio("Dezessete", anosAntes(hojeMais(16), 18))
+const faz18 = await novoSocio("Faz18", anosAntes(I, 18))
+const semNascimento = await novoSocio("Semnasc")
+await pool.query("UPDATE culturatech.socio_leitor SET data_nascimento = NULL WHERE id = $1", [semNascimento.id])
+
+const respDoze = await agendar({ data: I, turno: "tarde", crianca: crianca("Rui Moura") }, dozeAnos.token)
+conferir("sócio de 12 anos não agenda o Espaço Kids: 409", respDoze.status === 409 && respDoze.corpo.mensagem.includes("18 anos"), respDoze.corpo)
+conferir("sócio de 12 anos agenda mesa de estudo para si", (await agendar({ data: I, turno: "tarde" }, dozeAnos.token)).status === 201)
+const resp17 = await agendar({ data: I, turno: "tarde", crianca: crianca("Rui Moura") }, dezessete.token)
+conferir("sócio de 17 anos não agenda o Espaço Kids: 409", resp17.status === 409 && resp17.corpo.mensagem.includes("18 anos"), resp17.corpo)
+const filaDe17 = await naFila({ data: I, turno: "tarde", crianca: crianca("Rui Moura") }, dezessete.token)
+conferir("sócio de 17 anos não entra na fila Kids: 409", filaDe17.status === 409 && filaDe17.corpo.mensagem.includes("18 anos"), filaDe17.corpo)
+const adminPara17 = await agendar({ socioId: dezessete.id, data: I, turno: "tarde", crianca: crianca("Rui Moura") }, admin)
+conferir("admin não agenda Kids para responsável de 17 anos: 409", adminPara17.status === 409 && adminPara17.corpo.mensagem.includes("18 anos"), adminPara17.corpo)
+const semData = await agendar({ data: I, turno: "tarde", crianca: crianca("Rui Moura") }, semNascimento.token)
+conferir("cadastro sem nascimento não agenda o Espaço Kids: 409", semData.status === 409 && semData.corpo.mensagem.includes("sem data de nascimento"), semData.corpo)
+const vespera18 = await agendar({ data: hojeMais(14), turno: "noite", crianca: crianca("Ivo Moura") }, faz18.token)
+conferir("na véspera dos 18 anos ainda é recusado", vespera18.status === 409 && vespera18.corpo.mensagem.includes("18 anos"), vespera18.corpo)
+const dia18 = await agendar({ data: I, turno: "noite", crianca: crianca("Ivo Moura") }, faz18.token)
+conferir("quem faz 18 anos na data do agendamento é aceito", dia18.status === 201, dia18.corpo)
+await chamar("POST", `/agendamentos/${dia18.corpo.agendamentos.find((x: { socioId: string; data: string }) => x.socioId === faz18.id && x.data === I).id}/cancelar`, {}, faz18.token)
 
 const nomeCurto = await agendar({ data: I, turno: "manha", crianca: { ...bia, nome: "Bia" } }, eva.token)
 conferir("nome incompleto da criança: 400", nomeCurto.status === 400 && nomeCurto.corpo.campo === "nome", nomeCurto.corpo)

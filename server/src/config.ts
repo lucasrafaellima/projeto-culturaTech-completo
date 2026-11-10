@@ -31,7 +31,7 @@ if (jwtSecret.length < 32) throw new Error("JWT_SECRET muito curto: use pelo men
 for (const nome of ["PGHOST", "PGDATABASE", "PGUSER", "PGPASSWORD"]) obrigatoria(nome)
 
 // Onde ficam os arquivos (digitalizações, fotos, imagens de dano):
-// "s3" no Amazon S3 (produção) ou "disco" em server/uploads (desenvolvimento e testes)
+// "s3" em um bucket compatível com S3 (produção) ou "disco" em server/uploads (desenvolvimento e testes)
 function lerArmazenamento() {
   const modo = (process.env.ARMAZENAMENTO ?? "disco").toLowerCase()
   if (modo === "s3") {
@@ -50,7 +50,7 @@ function lerArmazenamento() {
   }
 }
 
-// Relógio dos turnos das mesas (o RDS roda em UTC). O valor entra em SQL, então só nomes IANA válidos.
+// Relógio dos turnos das mesas (o banco roda em UTC). O valor entra em SQL, então só nomes IANA válidos.
 function lerFusoHorario() {
   const fuso = process.env.FUSO_HORARIO?.trim() || "America/Maceio"
   try {

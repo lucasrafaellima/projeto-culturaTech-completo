@@ -2,7 +2,7 @@
 
 API em Node.js + Express sobre o PostgreSQL (`database/01_schema.sql`): login e cadastro, acervo, circulação
 (empréstimos, renovações, devoluções, multas, reservas), sócios-leitores e repositório digital, com os arquivos no
-**Amazon S3**. As senhas são conferidas contra o hash **bcrypt** da coluna `senha_hash` (o mesmo formato gerado por
+**bucket compatível com S3 (Neon Object Storage)**. As senhas são conferidas contra o hash **bcrypt** da coluna `senha_hash` (o mesmo formato gerado por
 `crypt(..., gen_salt('bf'))` nos dados de exemplo).
 
 ## Como rodar
@@ -12,7 +12,7 @@ Requer **Node 22.18+** (roda TypeScript direto, sem build).
 ```bash
 cd server
 npm install
-cp .env.example .env     # preencha o endpoint do RDS, a senha e o JWT_SECRET
+cp .env.example .env     # preencha o .env (manual em database/README.md)
 npm run dev              # http://localhost:3333
 ```
 
@@ -25,7 +25,7 @@ npm run testar-acervo       # 48 verificações das rotas de acervo
 npm run testar-circulacao   # 73 verificações de empréstimos, renovações, multas, situação do sócio, reservas e sócios
 npm run testar-repositorio  # 52 verificações de arquivos (inclusive limites de tamanho), repositório e consulta pública
 npm run testar-mural        # 34 verificações do mural (publicações, imagens, filtros e ordenação)
-npm run testar-mesas        # 65 verificações de mesas, fila, Espaço Kids e confirmação de uso (US30 só com um turno aberto)
+npm run testar-mesas        # 73 verificações de mesas, fila, Espaço Kids e confirmação de uso (US30 só com um turno aberto)
 npm run testar-parcerias    # 41 verificações de instituições, doações e aquisições
 npm run testar-s3           # grava, lê e apaga um objeto no armazenamento (não usa o banco)
 npm run tipos               # checagem de tipos
@@ -37,7 +37,7 @@ npm run dados-pdf           # envia os PDFs de exemplo do repositório (depois d
 > para simular atraso (usa as variáveis `PG*` do `.env`). O `testar-mesas` também lê e altera linhas direto no banco.
 > Rode contra um banco de testes, recarregado antes de cada rodada completa: os scripts contam com os dados de exemplo.
 
-### Arquivos no Amazon S3
+### Arquivos no bucket (Neon Object Storage)
 
 Digitalizações do repositório, imagens do mural, fotos 3x4 e imagens de dano ficam fora do banco; a tabela `arquivo`
 guarda só a chave (`chave_storage`), no formato `<pasta>/<uuid>.<extensão>`:
@@ -52,43 +52,19 @@ guarda só a chave (`chave_storage`), no formato `<pasta>/<uuid>.<extensão>`:
 
 A extensão vem do formato (`pdf`, `jpeg`, `png` ou `webp`); como o site converte as imagens para WEBP quando isso
 reduz o tamanho (RNF13), a maioria das imagens fica `.webp`. O nome original do arquivo fica em `arquivo.nome_arquivo`.
-PDFs comprimidos são gravados com `Content-Encoding: gzip`, então abrem normalmente quando baixados pelo console da AWS.
+PDFs comprimidos são gravados com `Content-Encoding: gzip`, então abrem normalmente quando baixados do bucket.
 O front informa a pasta no upload (`X-Destino`) e a API confere a pasta ao ligar o arquivo a um documento, publicação,
-sócio ou dano. Arquivos enviados antes desta organização continuam em `arquivos/` e seguem funcionando.
+sócio ou dano.
 
 O destino é escolhido no `.env`:
 
 | `ARMAZENAMENTO` | Onde | Variáveis |
 |---|---|---|
-| `s3` | bucket do Amazon S3 | `S3_BUCKET`, `S3_REGIAO`; `S3_ENDPOINT` opcional (MinIO ou outro serviço compatível) |
+| `s3` | bucket compatível com S3 (Neon Object Storage) | `S3_BUCKET`, `S3_REGIAO`, `S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 | `disco` (padrão) | pasta `server/uploads` (fora do git) | `PASTA_UPLOADS` opcional |
 
-As credenciais da AWS vêm da cadeia padrão do SDK: papel IAM da instância (recomendado no EC2/ECS), perfil em
-`~/.aws` ou `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. O usuário/papel precisa só de `s3:PutObject`, `s3:GetObject`
-e `s3:DeleteObject` nas pastas acima:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-      "Resource": [
-        "arn:aws:s3:::<bucket>/mural/*",
-        "arn:aws:s3:::<bucket>/acervo/*",
-        "arn:aws:s3:::<bucket>/documentos/*",
-        "arn:aws:s3:::<bucket>/socios/*",
-        "arn:aws:s3:::<bucket>/danos/*",
-        "arn:aws:s3:::<bucket>/arquivos/*"
-      ]
-    }
-  ]
-}
-```
-
-(`arquivos/*` só é necessário enquanto houver arquivos enviados antes da organização em pastas.) Mantenha o bucket
-**privado** (Block Public Access ligado): quem entrega os arquivos é a API, que confere a permissão de cada um.
+As chaves saem do Neon, em **Connect > Storage**; apesar do nome `AWS_*`, são do bucket do Neon (veja o manual em
+[database/README.md](../database/README.md)). O bucket fica privado: quem entrega os arquivos é a API.
 
 ## Rotas
 
@@ -218,7 +194,7 @@ Regras principais:
   contam como outro nome).
 - **Exemplares**: a obra precisa existir (RN16); tombamentos ficam em maiúsculas e não podem se repetir; o id é um UUID
   gerado pelo banco (RN20). A **localização** (até 80 caracteres, ex.: "Estante 3, prateleira B") diz onde cada cópia
-  fica; vazia, vale a seção da obra. Bancos criados antes dessa coluna precisam rodar `database/04_localizacao_exemplar.sql`.
+  fica; vazia, vale a seção da obra.
 - **Status** (RN12): não muda se o exemplar estiver emprestado ou reservado; `reservado` só pela reserva de um sócio;
   exemplar baixado não pode ser alterado.
 - **Desbaste**: só exemplares `ocioso` ou `danificado` (RN31) e com relatório de no mínimo 20 caracteres (RN24). O
@@ -344,13 +320,16 @@ As ações respondem com `{ agendamentos, fila }` atualizados, porque cancelar p
   ocupação e a posição, mas não quem está lá.
 - **Espaços:** cada mesa é de `estudo` ou `kids`. Agendamento para si só em mesa de estudo; para criança, só em mesa
   Kids. A fila é separada por espaço.
+- **Quem pode agendar o Espaço Kids (US29):** só o responsável com 18 anos ou mais na data do agendamento, inclusive
+  quando o administrador agenda por ele. Sócio de 12 a 17 anos tem conta e agenda mesa de estudo para si, mas não agenda
+  nem entra na fila do Espaço Kids. Cadastro sem data de nascimento também é recusado.
 - **Espaço Kids (US29):** a criança tem nome completo, CPF válido (que não seja de um sócio cadastrado) e até 11 anos
   na data do agendamento. Vale 1 turno por dia para cada criança, pelo CPF, e esse agendamento não conta na RN05 do
   responsável. As regras e mensagens são as de `validarCrianca` e `agendarKids` do front-end.
 - **Confirmação de uso (US30):** sem a confirmação em até 15 minutos do início do turno (ou do agendamento, se feito
   depois), o agendamento vira `nao_compareceu` e a vaga vai para o primeiro da fila. A verificação roda a cada leitura
   das mesas e antes de cada agendamento.
-- **Fuso horário:** turnos e datas seguem o relógio de Arapiraca (`America/Maceio`), porque o RDS roda em UTC.
+- **Fuso horário:** turnos e datas seguem o relógio de Arapiraca (`America/Maceio`), porque o banco roda em UTC.
 - **Concorrência:** uma trava por data, turno e espaço (`pg_advisory_xact_lock`) serializa quem disputa as mesas.
 - **Inativar ou anonimizar um sócio** cancela os agendamentos futuros dele, tira ele da fila e contempla o próximo.
   Anonimizar também apaga a data de nascimento do sócio e o CPF e o nascimento das crianças.
@@ -397,7 +376,6 @@ Limitações conhecidas desse modo:
 
 - **Continuam locais:** notificações e backups. Por isso, quem é contemplado pela fila vê o agendamento em Mesas e na
   Minha Área, mas não recebe e-mail.
-- **Banco antigo:** sem rodar `database/07_mesas_espaco_kids.sql`, as rotas de mesas falham e o login é recusado.
 - **Importação de sócios por planilha** é recusada com a sessão pela API (a planilha não traz o consentimento LGPD que
   o banco exige); cadastre pela tela Sócios-leitores.
 - **Dados de demonstração:** os PDFs de exemplo do navegador não existem no banco; rode `npm run dados-pdf` para enviar
@@ -413,6 +391,5 @@ Limitações conhecidas desse modo:
 - Senhas acima de 72 bytes são recusadas (limite do bcrypt).
 - Consultas parametrizadas (`$1`), sem concatenar entrada do usuário no SQL.
 - O limitador de tentativas fica em memória: reiniciar a API zera a contagem.
-- `DB_SSL=require` cifra a conexão com o RDS, mas não confere o certificado. Para conferir, baixe o
-  [bundle de CA da AWS](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem) e use `DB_SSL=verify`
-  com `DB_SSL_CA=./global-bundle.pem`.
+- `DB_SSL=require` cifra a conexão com o banco, mas não confere o certificado. Para conferir, use `DB_SSL=verify` com
+  `DB_SSL_CA` apontando para o arquivo de CA.

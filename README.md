@@ -22,7 +22,7 @@ npm run preview    # serve o build em http://localhost:4173
 | Sócio-leitor | `153.509.460-56` (João Pedro) | `123456` | Regular, com reserva e empréstimo vencendo em 2 dias |
 | Sócio-leitor | `714.602.380-01` (Ana Beatriz) | `123456` | Multa com justificativa aguardando julgamento |
 | Sócio-leitor | `385.613.920-61` (Pedro Henrique) | `123456` | Cadastro sem e-mail: falha de notificação |
-| Sócio-leitor | `861.904.237-87` (Lucas Ferreira) | `123456` | 17 anos: tem conta, mas não pode ser responsável no Espaço Kids |
+| Sócio-leitor | `861.904.237-87` (Lucas Ferreira) | `123456` | 17 anos: tem conta, mas não pode ser responsável no Espaço Kids (no navegador e no banco) |
 | Sócio-leitor | `020.112.940-02` (Lúcia Ferreira) | `123456` | Só no banco (`02_dados_exemplo.sql`): dois exemplares atrasados, multa corrente somada |
 
 Visitantes não precisam de login para o mural, a consulta pública e o repositório digital.
@@ -155,7 +155,7 @@ resolvidos assim e podem ser ajustados:
 
 Com a API (`server/`) no ar, login, cadastro, acervo, circulação (US08–US11: empréstimo, renovação, datas e multa por
 atraso), sócios-leitores, repositório digital (US17–US18), mural, mesas de estudo e parcerias ficam no PostgreSQL, com os
-arquivos e imagens no Amazon S3; veja `server/README.md`. Notificações e backups continuam no navegador. Sem a API, o front-end
+arquivos e imagens em um bucket do Neon; veja `server/README.md`. Notificações e backups continuam no navegador. Sem a API, o front-end
 funciona sozinho, no modo de demonstração descrito abaixo:
 
 - **Os dados ficam no navegador** (localStorage para registros, IndexedDB para arquivos). Cada computador tem seus próprios

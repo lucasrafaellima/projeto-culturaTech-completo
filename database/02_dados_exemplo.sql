@@ -8,6 +8,7 @@
 --   Pedro Henrique (385.613.920-61) sem e-mail: falha de notificação
 --   Lúcia Ferreira (020.112.940-02) dois exemplares atrasados: multa
 --                  corrente somada por exemplar (US11)
+--   Lucas Ferreira (861.904.237-87) 17 anos: tem conta, mas não agenda o Espaço Kids (US29)
 -- Senha dos sócios: 123456. Datas relativas ao dia da carga.
 -- PDFs de exemplo do repositório: depois desta carga, com a API no ar,
 -- rode "npm run dados-pdf" em server/ (envia os arquivos ao S3/disco).
@@ -47,7 +48,11 @@ INSERT INTO socio_leitor (id, nome, cpf, rg, telefone, email, endereco_rua, ende
     ('50000000-0000-0000-0000-000000000005', 'Lúcia Ferreira Gomes', '02011294002', '5678901', '82999990005',
      'lucia.ferreira@example.com', 'Rua Boa Vista', '210', 'Santa Edwiges', '57310000',
      public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 90, CURRENT_DATE - 90,
-     DATE '1991-05-18');
+     DATE '1991-05-18'),
+    ('50000000-0000-0000-0000-000000000006', 'Lucas Ferreira Lima', '86190423787', NULL, '82999990006',
+     'lucas.ferreira@example.com', 'Rua Santa Luzia', '15', 'Centro', '57300000',
+     public.crypt('123456', public.gen_salt('bf')), CURRENT_DATE - 40, CURRENT_DATE - 40,
+     (CURRENT_DATE - INTERVAL '17 years')::date);
 
 -- Acervo -----------------------------------------------------
 INSERT INTO autor (id, nome) VALUES
