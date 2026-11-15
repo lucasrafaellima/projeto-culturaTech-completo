@@ -93,7 +93,7 @@ function AlertaPendencias() {
             </ul>
           </div>
         </div>
-        <Aviso tipo="erro">Novos empréstimos e reservas ficam bloqueados até a regularização (RN08).</Aviso>
+        <Aviso tipo="erro">Novos empréstimos e reservas ficam bloqueados até a regularização.</Aviso>
         <Rodape>
           <Button variante="outline" onClick={fecharAlertaLogin}>
             Fechar

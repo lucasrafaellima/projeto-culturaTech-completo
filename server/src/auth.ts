@@ -205,7 +205,7 @@ export async function exigirAdmin(req: Request, res: Response, next: NextFunctio
     return
   }
   if (usuario.perfil !== "admin") {
-    res.status(403).json({ ok: false, mensagem: "Acesso negado: operação permitida só para administradores (RN15)." })
+    res.status(403).json({ ok: false, mensagem: "Acesso negado: operação permitida só para administradores." })
     return
   }
   res.locals.usuario = usuario

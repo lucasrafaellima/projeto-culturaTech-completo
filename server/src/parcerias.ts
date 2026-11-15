@@ -156,7 +156,7 @@ rotasParcerias.post("/movimentacoes/doacao", async (req, res) => {
   const receptorId = texto(corpo.receptorId)
   const exemplarIds = (Array.isArray(corpo.exemplarIds) ? corpo.exemplarIds : []).map(texto)
   const r = await emTransacao(async (c) => {
-    const receptor = await travarReceptor(c, receptorId, "O receptor precisa estar cadastrado antes da doação (RN25).")
+    const receptor = await travarReceptor(c, receptorId, "O receptor precisa estar cadastrado antes da doação.")
     if (exemplarIds.length === 0) throw new ErroRegra(400, "Selecione o(s) exemplar(es) doado(s).")
     if (exemplarIds.some((id) => !UUID.test(id)) || new Set(exemplarIds).size !== exemplarIds.length) {
       throw new ErroRegra(400, "Exemplar não encontrado no acervo.")
@@ -182,7 +182,7 @@ rotasParcerias.post("/movimentacoes/doacao", async (req, res) => {
       if (rows[0].n + exs.length > MAX_DOACOES_PESSOA_FISICA) {
         throw new ErroRegra(
           409,
-          `Pessoa física pode receber no máximo ${MAX_DOACOES_PESSOA_FISICA} livro. ${receptor.nome} já recebeu ${rows[0].n} (RN26).`,
+          `Pessoa física pode receber no máximo ${MAX_DOACOES_PESSOA_FISICA} livro. ${receptor.nome} já recebeu ${rows[0].n}.`,
         )
       }
     }
@@ -203,7 +203,7 @@ rotasParcerias.post("/movimentacoes/aquisicao", async (req, res) => {
   const receptorId = texto(corpo.receptorId)
   const livroId = texto(corpo.livroId)
   const r = await emTransacao(async (c) => {
-    const receptor = await travarReceptor(c, receptorId, "A instituição ou pessoa de origem precisa estar cadastrada (RN25).")
+    const receptor = await travarReceptor(c, receptorId, "A instituição ou pessoa de origem precisa estar cadastrada.")
     if (!UUID.test(livroId)) throw new ErroRegra(400, "Selecione a obra.")
     const lista = validarTombamentos(corpo.tombamentos)
     const exemplares = await gravarExemplares(c, livroId, lista)

@@ -246,7 +246,8 @@ CREATE TABLE reserva (
 CREATE UNIQUE INDEX ux_reserva_exemplar_ativa ON reserva (exemplar_id) WHERE status = 'ativa';
 CREATE INDEX ix_reserva_socio ON reserva (socio_id, status);
 
--- Notificações por e-mail (RF05) - caixa de saída
+-- Avisos de prazo no sistema (RF05): o sócio os vê na Minha Área. status = 'enviado' é o aviso
+-- disponível; 'falha', motivo_falha e tratada_em vêm do tempo do envio por e-mail e não são mais usados
 CREATE TABLE notificacao (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     socio_id       UUID NOT NULL REFERENCES socio_leitor (id),
@@ -457,7 +458,7 @@ BEGIN
     END IF;
 
     IF v_categoria IN ('raro', 'cordel', 'exemplar_unico') THEN
-        RAISE EXCEPTION 'Esta obra é apenas para consulta local (RN04).';
+        RAISE EXCEPTION 'Esta obra é apenas para consulta local.';
     END IF;
 
     IF v_status = 'reservado' THEN
@@ -475,11 +476,11 @@ BEGIN
     PERFORM 1 FROM socio_leitor WHERE id = NEW.socio_id FOR UPDATE;
 
     IF fn_socio_bloqueado(NEW.socio_id) THEN
-        RAISE EXCEPTION 'Sócio-leitor com pendências: novos empréstimos bloqueados (RN08).';
+        RAISE EXCEPTION 'Sócio-leitor com pendências: novos empréstimos bloqueados.';
     END IF;
 
     IF fn_itens_do_socio(NEW.socio_id, NEW.exemplar_id) >= 3 THEN
-        RAISE EXCEPTION 'Limite de 3 exemplares simultâneos atingido (RN01).';
+        RAISE EXCEPTION 'Limite de 3 exemplares simultâneos atingido.';
     END IF;
 
     RETURN NEW;
@@ -513,17 +514,17 @@ BEGIN
     END IF;
 
     IF v_categoria IN ('raro', 'cordel', 'exemplar_unico') THEN
-        RAISE EXCEPTION 'Esta obra é apenas para consulta local (RN04).';
+        RAISE EXCEPTION 'Esta obra é apenas para consulta local.';
     END IF;
 
     PERFORM 1 FROM socio_leitor WHERE id = NEW.socio_id FOR UPDATE;
 
     IF fn_socio_bloqueado(NEW.socio_id) THEN
-        RAISE EXCEPTION 'Sócio-leitor com pendências: novas reservas bloqueadas (RN08).';
+        RAISE EXCEPTION 'Sócio-leitor com pendências: novas reservas bloqueadas.';
     END IF;
 
     IF fn_itens_do_socio(NEW.socio_id, NEW.exemplar_id) >= 3 THEN
-        RAISE EXCEPTION 'Limite de 3 exemplares simultâneos atingido (RN01).';
+        RAISE EXCEPTION 'Limite de 3 exemplares simultâneos atingido.';
     END IF;
 
     RETURN NEW;
@@ -580,7 +581,7 @@ BEGIN
        AND EXISTS (SELECT 1 FROM movimentacao
                     WHERE receptor_id = NEW.receptor_id AND tipo = 'doacao'
                       AND id <> NEW.id) THEN
-        RAISE EXCEPTION 'Pessoa física já recebeu a doação permitida (RN26).';
+        RAISE EXCEPTION 'Pessoa física já recebeu a doação permitida.';
     END IF;
     RETURN NEW;
 END;

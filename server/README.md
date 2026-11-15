@@ -27,6 +27,8 @@ npm run testar-repositorio  # 52 verificações de arquivos (inclusive limites d
 npm run testar-mural        # 34 verificações do mural (publicações, imagens, filtros e ordenação)
 npm run testar-mesas        # 73 verificações de mesas, fila, Espaço Kids e confirmação de uso (US30 só com um turno aberto)
 npm run testar-parcerias    # 41 verificações de instituições, doações e aquisições
+npm run testar-notificacoes # 19 verificações dos avisos de prazo (lembrete, vencimento, atraso e acesso)
+npm run testar-desempenho   # consulta pública com 5.000 livros em até 5 s (API e navegador; exige o preview na 4173)
 npm run testar-s3           # grava, lê e apaga um objeto no armazenamento (não usa o banco)
 npm run tipos               # checagem de tipos
 npm run dados-pdf           # envia os PDFs de exemplo do repositório (depois de 02_dados_exemplo.sql)
@@ -346,16 +348,34 @@ Código em [src/parcerias.ts](src/parcerias.ts). Todas as rotas são só para ad
 | POST | `/api/movimentacoes/doacao` | `{ receptorId, exemplarIds, observacao? }`: receptor cadastrado (RN25), pessoa física recebe no máximo 1 livro (RN26), uma obra por doação, só exemplar disponível ou ocioso. O exemplar recebe baixa com motivo `doacao` |
 | POST | `/api/movimentacoes/aquisicao` | `{ receptorId, livroId, tombamentos, observacao? }`: cria os exemplares e a movimentação na mesma transação |
 
+## Avisos de prazo (RF05 / US15)
+
+Código em [src/notificacoes.ts](src/notificacoes.ts). Os avisos ficam **dentro do sistema**, sem e-mail: o sócio os vê
+na Minha Área e o administrador, em Notificações.
+
+| Método | Rota | Quem | Resposta |
+|---|---|---|---|
+| GET | `/api/notificacoes` | admin | `{ notificacoes }`: os 200 avisos mais recentes |
+| GET | `/api/eu/notificacoes` | sócio | `{ notificacoes }`: só os avisos do próprio sócio |
+| POST | `/api/notificacoes/rotina` | admin | `{ geradas, notificacoes }` ("Executar rotina agora") |
+
+- **Regras:** lembrete de 1 a 3 dias antes do vencimento, aviso no dia e aviso de atraso, para os empréstimos ativos.
+  Cada aviso sai uma única vez por prazo (`UNIQUE (emprestimo_id, tipo, referencia)`); quando o prazo muda, numa
+  renovação, o aviso volta a valer.
+- **Quando roda:** a cada leitura das rotas acima, ou seja, sempre que o sócio ou o administrador abre o sistema, e
+  pelo botão. Não há timer, para o banco do Neon Free poder hibernar.
+- **Dia:** segue `FUSO_HORARIO`, como as mesas.
+
 ## Como o front-end usa a API
 
-Com a API no ar, o **banco é a fonte** do acervo, da circulação, dos sócios, do repositório, do mural, das mesas e das
-parcerias
+Com a API no ar, o **banco é a fonte** do acervo, da circulação, dos sócios, do repositório, do mural, das mesas, das
+parcerias e dos avisos de prazo
 (`src/lib/store.tsx`, `src/lib/api.ts`, `src/lib/arquivos.ts`):
 
 | Quem | O que vem do banco (no login e ao reabrir o app) |
 |---|---|
-| Administrador conectado pela API | acervo completo, circulação (empréstimos, multas, danos, reservas), sócios, repositório, mural, mesas e parcerias |
-| Sócio conectado pela API | acervo público, o próprio cadastro e a própria circulação, repositório, mural e mesas (dos outros sócios, só a ocupação) |
+| Administrador conectado pela API | acervo completo, circulação (empréstimos, multas, danos, reservas), sócios, repositório, mural, mesas, parcerias e avisos de prazo |
+| Sócio conectado pela API | acervo público, o próprio cadastro e a própria circulação, repositório, mural, mesas (dos outros sócios, só a ocupação) e os próprios avisos de prazo |
 | Visitante | acervo público, repositório e mural |
 
 1. Os dados do navegador são **substituídos** pelos do banco. Se o carregamento falhar no login, o login é recusado,
@@ -374,8 +394,8 @@ parcerias
 
 Limitações conhecidas desse modo:
 
-- **Continuam locais:** notificações e backups. Por isso, quem é contemplado pela fila vê o agendamento em Mesas e na
-  Minha Área, mas não recebe e-mail.
+- **Continuam locais:** os backups. Nenhum aviso sai por e-mail: quem é contemplado pela fila vê o agendamento em Mesas
+  e na Minha Área.
 - **Importação de sócios por planilha** é recusada com a sessão pela API (a planilha não traz o consentimento LGPD que
   o banco exige); cadastre pela tela Sócios-leitores.
 - **Dados de demonstração:** os PDFs de exemplo do navegador não existem no banco; rode `npm run dados-pdf` para enviar

@@ -390,7 +390,7 @@ function FichaSocio({
       {!socio.dataNascimento && !socio.anonimizado && (
         <Aviso tipo="alerta">Cadastro sem data de nascimento. Edite o cadastro e informe a data (conta a partir dos 12 anos).</Aviso>
       )}
-      {motivo && <Aviso tipo="erro">Bloqueado para novos empréstimos: {motivo} (RN08).</Aviso>}
+      {motivo && <Aviso tipo="erro">Bloqueado para novos empréstimos: {motivo}.</Aviso>}
 
       <Card>
         <CardHeader titulo="Livros reservados" icone={<BookMarked className="h-5 w-5" />} />
@@ -483,7 +483,7 @@ function FormSocio({
           <Campo rotulo="Telefone">
             {(id) => <Input id={id} inputMode="tel" value={form.telefone} onChange={(e) => set("telefone", formatTelefone(e.target.value))} placeholder="(82) 99999-9999" />}
           </Campo>
-          <Campo rotulo="E-mail" dica="Usado para os avisos de prazo de devolução (RF05).">
+          <Campo rotulo="E-mail" dica="Usado para os avisos de prazo de devolução.">
             {(id) => <Input id={id} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />}
           </Campo>
         </div>
@@ -514,7 +514,7 @@ function FormSocio({
         />
         <span className="text-pretty">
           O titular autorizou o tratamento dos seus dados pessoais para o serviço de empréstimo e uso das mesas de estudo,
-          conforme a LGPD (RNF06). Os dados são visíveis apenas para a administração da biblioteca.
+          conforme a LGPD. Os dados são visíveis apenas para a administração da biblioteca.
         </span>
       </label>
 

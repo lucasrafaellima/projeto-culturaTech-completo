@@ -130,11 +130,11 @@ conferir(
 conferir("histórico com 'Empréstimo registrado.'", emp1.historico?.[0]?.texto === "Empréstimo registrado.", emp1.historico)
 conferir("exemplar emprestado fica indisponível", (await statusDe(ex[0])) === "indisponivel")
 const rn14 = await post("/emprestimos", { socioId: socioB, exemplarId: ex[0] })
-conferir("RN14: exemplar já emprestado é recusado", rn14.status === 409 && rn14.corpo.mensagem.includes("RN14"), rn14.corpo)
+conferir("RN14: exemplar já emprestado é recusado", rn14.status === 409 && rn14.corpo.mensagem.includes("já possui um empréstimo ativo"), rn14.corpo)
 const rn08 = await post("/emprestimos", { socioId: MARIA, exemplarId: ex[1] })
-conferir("RN08: sócia com atraso e multa é bloqueada", rn08.status === 409 && rn08.corpo.mensagem.includes("RN08"), rn08.corpo)
+conferir("RN08: sócia com atraso e multa é bloqueada", rn08.status === 409 && rn08.corpo.mensagem.includes("Empréstimo bloqueado"), rn08.corpo)
 const rn04 = await post("/emprestimos", { socioId: socioB, exemplarId: CORDEL })
-conferir("RN04: cordel não pode ser emprestado", rn04.status === 409 && rn04.corpo.mensagem.includes("RN04"), rn04.corpo)
+conferir("RN04: cordel não pode ser emprestado", rn04.status === 409 && rn04.corpo.mensagem.includes("consulta local"), rn04.corpo)
 const naoExiste = await post("/emprestimos", { socioId: socioB, exemplarId: "00000000-0000-0000-0000-000000000000" })
 conferir("exemplar inexistente: 404", naoExiste.status === 404, naoExiste.corpo)
 
@@ -147,7 +147,7 @@ for (let i = 1; i <= 3; i++) {
   prevista = r.corpo.emprestimo?.dataPrevista ?? prevista
 }
 const r4 = await post(`/emprestimos/${emp1.id}/renovar`)
-conferir("RN17: 4ª renovação recusada", r4.status === 409 && r4.corpo.mensagem.includes("RN17"), r4.corpo)
+conferir("RN17: 4ª renovação recusada", r4.status === 409 && r4.corpo.mensagem.includes("renovações atingido"), r4.corpo)
 
 // ---------- US10: alterar prazo ----------
 const antes = await patch(`/emprestimos/${emp1.id}`, { dataPrevista: hojeMais(-1), motivo: "Ajuste de teste do prazo." })
@@ -168,7 +168,7 @@ const e2 = await post("/emprestimos", { socioId: socioA, exemplarId: ex[1] })
 const e3 = await post("/emprestimos", { socioId: socioA, exemplarId: ex[2] })
 conferir("2º e 3º empréstimos do mesmo sócio", e2.status === 201 && e3.status === 201, [e2.corpo, e3.corpo])
 const rn01 = await post("/emprestimos", { socioId: socioA, exemplarId: ex[3] })
-conferir("RN01: 4º exemplar simultâneo recusado", rn01.status === 409 && rn01.corpo.mensagem.includes("RN01"), rn01.corpo)
+conferir("RN01: 4º exemplar simultâneo recusado", rn01.status === 409 && rn01.corpo.mensagem.includes("exemplares simultâneos"), rn01.corpo)
 const cancCurto = await post(`/emprestimos/${e3.corpo.emprestimo.id}/cancelar`, { motivo: "erro" })
 conferir("cancelar sem motivo suficiente: 400", cancCurto.status === 400, cancCurto.corpo)
 const canc = await post(`/emprestimos/${e3.corpo.emprestimo.id}/cancelar`, { motivo: "Registrado no sócio errado." })
@@ -193,6 +193,16 @@ conferir(
 conferir("exemplar devolvido volta a ficar disponível", (await statusDe(ex[1])) === "disponivel")
 const devDeNovo = await post(`/emprestimos/${e2.corpo.emprestimo.id}/devolver`)
 conferir("devolver duas vezes: 409", devDeNovo.status === 409, devDeNovo.corpo)
+
+// US8: o administrador vê o histórico de qualquer sócio, com empréstimos passados e em andamento
+const historicoA = ((await get("/circulacao")).corpo.emprestimos as { socioId: string; status: string; dataEmprestimo: string }[]).filter(
+  (e) => e.socioId === socioA,
+)
+conferir(
+  "US8: admin vê os empréstimos passados e em andamento do sócio, com as datas",
+  historicoA.some((e) => e.status === "devolvido") && historicoA.some((e) => e.status === "ativo") && historicoA.every((e) => !!e.dataEmprestimo),
+  historicoA,
+)
 
 // ---------- situação do sócio no balcão (US08 / US11) ----------
 const sitA = await get(`/socios/${socioA}/situacao`)
@@ -368,7 +378,7 @@ await post(`/reservas/${resAdmin.corpo.reserva.id}/cancelar`)
 const inativar = await post(`/socios/${socioA}/ativo`)
 conferir("inativar sócio sem empréstimos", inativar.status === 200 && inativar.corpo.socio.ativo === false, inativar.corpo)
 const rn06 = await post("/emprestimos", { socioId: socioA, exemplarId: ex[4] })
-conferir("RN06: sócio inativo não pega emprestado", rn06.status === 409 && rn06.corpo.mensagem.includes("RN06"), rn06.corpo)
+conferir("RN06: sócio inativo não pega emprestado", rn06.status === 409 && rn06.corpo.mensagem.includes("sócios-leitores ativos"), rn06.corpo)
 const anon = await post(`/socios/${socioA}/anonimizar`)
 conferir(
   "anonimizar: dados pessoais apagados",
@@ -378,6 +388,15 @@ conferir(
 const loginAnon = await chamar("POST", "/auth/login", { usuario: cpfA, senha: "senha-teste" })
 conferir("sócio anonimizado não entra", loginAnon.status === 401, loginAnon.corpo)
 conferir("cadastro anonimizado não reativa", (await post(`/socios/${socioA}/ativo`)).status === 409)
+
+// US29 c6: quem tem 12 anos já tem conta e pode pegar livros emprestados
+const hoje = hojeMais(0)
+const cpfDoze = cpfAleatorio()
+const doze = await post("/socios", { ...dadosSocio(`Doze Teste ${sufixo}`, cpfDoze), dataNascimento: `${Number(hoje.slice(0, 4)) - 12}${hoje.slice(4)}` })
+conferir("sócio que faz 12 anos hoje é cadastrado", doze.status === 201, doze.corpo)
+const empDoze = await post("/emprestimos", { socioId: doze.corpo.socio?.id, exemplarId: ex[5] })
+conferir("sócio de 12 anos pega livro emprestado", empDoze.status === 201, empDoze.corpo)
+if (empDoze.status === 201) await post(`/emprestimos/${empDoze.corpo.emprestimo.id}/devolver`)
 
 // devolve o que ficou emprestado, para não deixar o sócio B bloqueado
 await post(`/emprestimos/${retirada.corpo.emprestimo.id}/devolver`)

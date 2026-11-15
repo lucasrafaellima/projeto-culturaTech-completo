@@ -10,6 +10,7 @@ import { rotasCirculacao } from "./circulacao.ts"
 import { rotasSocios } from "./socios.ts"
 import { rotasMural } from "./mural.ts"
 import { rotasMesas } from "./mesas.ts"
+import { rotasNotificacoes } from "./notificacoes.ts"
 import { rotasParcerias } from "./parcerias.ts"
 import { limparFalhas, registrarFalha, segundosBloqueado } from "./limitador.ts"
 
@@ -103,6 +104,7 @@ app.use("/api", rotasSocios)
 app.use("/api", rotasMural)
 app.use("/api", rotasMesas)
 app.use("/api", rotasParcerias)
+app.use("/api", rotasNotificacoes)
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ ok: false, mensagem: "Rota não encontrada." })

@@ -199,8 +199,8 @@ export function MesasPage() {
             )
           ) : (
             <p className="text-sm text-muted-foreground text-pretty">
-              Escolha a data e o turno. Cada sócio-leitor pode agendar <strong>1 turno por dia</strong> (RN05). Se todas as
-              mesas estiverem ocupadas, você pode entrar na fila de espera (RF11).
+              Escolha a data e o turno. Cada sócio-leitor pode agendar <strong>1 turno por dia</strong>. Se todas as
+              mesas estiverem ocupadas, você pode entrar na fila de espera.
             </p>
           )}
         </div>

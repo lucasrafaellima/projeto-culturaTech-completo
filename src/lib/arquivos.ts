@@ -182,7 +182,7 @@ export async function armazenarImagem(
 ): Promise<ArquivoArmazenado> {
   const info = { name: nome ?? (arquivo as File).name ?? "imagem", type: arquivo.type }
   if (!imagemValida(info)) {
-    throw new Error("Formato de imagem não permitido. Envie apenas WEBP, JPG ou PNG (RNF12).")
+    throw new Error("Formato de imagem não permitido. Envie apenas WEBP, JPG ou PNG.")
   }
   if (arquivo.size > LIMITE_IMAGEM_ORIGINAL_MB * MB) {
     throw new Error(`Imagem grande demais: escolha um arquivo de até ${LIMITE_IMAGEM_ORIGINAL_MB} MB.`)

@@ -130,6 +130,9 @@ import {
   anexarDocumentoNaApi,
   agendarNaApi,
   anonimizarSocioNaApi,
+  executarRotinaDeAvisosNaApi,
+  minhasNotificacoesDaApi,
+  notificacoesDaApi,
   cancelarAgendamentoNaApi,
   confirmarUsoNaApi,
   desistirDaFilaNaApi,
@@ -299,8 +302,7 @@ interface StoreContextType extends Estado {
   cancelarReserva: (id: string) => Promise<Resultado>
 
   // notificações (RF05)
-  executarRotinaAgora: () => RelatorioRotina | null
-  reenviarNotificacao: (id: string) => Resultado
+  executarRotinaAgora: () => Promise<Resultado>
 
   // mesas (RF10 / RF11)
   agendarMesa: (socioId: string, data: string, turno: Turno, mesaId?: string) => Promise<ResultadoAgendamento>
@@ -451,45 +453,53 @@ async function carregarDadosDoPerfil(
     mensagem: r.tipo === "erro" ? r.mensagem : "Não foi possível carregar os dados do servidor. Tente novamente.",
   })
   if (perfil === "admin" && token) {
-    const [a, c, r, me, pa] = await Promise.all([
+    const [a, c, r, me, pa, no] = await Promise.all([
       acervoDaApi(token),
       circulacaoDaApi(token),
       repositorioDaApi(),
       mesasDaApi(token),
       parceriasDaApi(token),
+      notificacoesDaApi(token),
     ])
     if (a.tipo !== "ok") return falhou(a)
     if (c.tipo !== "ok") return falhou(c)
     if (r.tipo !== "ok") return falhou(r)
     if (me.tipo !== "ok") return falhou(me)
     if (pa.tipo !== "ok") return falhou(pa)
+    if (no.tipo !== "ok") return falhou(no)
     return {
       ok: true,
-      aplicar: (e) =>
-        parceriasParaEstado(
+      aplicar: (e) => ({
+        ...parceriasParaEstado(
           mesasParaEstado(repositorioParaEstado(circulacaoParaEstado(acervoParaEstado(e, a.dados), c.dados), r.dados), me.dados),
           pa.dados,
         ),
+        notificacoes: no.dados.notificacoes,
+      }),
     }
   }
   if (perfil === "socio" && token) {
-    const [a, m, r, me] = await Promise.all([
+    const [a, m, r, me, no] = await Promise.all([
       acervoPublicoDaApi(),
       minhaCirculacaoDaApi(token),
       repositorioDaApi(),
       mesasDaApi(token),
+      minhasNotificacoesDaApi(token),
     ])
     if (a.tipo !== "ok") return falhou(a)
     if (m.tipo !== "ok") return falhou(m)
     if (r.tipo !== "ok") return falhou(r)
     if (me.tipo !== "ok") return falhou(me)
+    if (no.tipo !== "ok") return falhou(no)
     return {
       ok: true,
-      aplicar: (e, senhaLocal) =>
-        mesasParaEstado(
+      aplicar: (e, senhaLocal) => ({
+        ...mesasParaEstado(
           repositorioParaEstado(minhaCirculacaoParaEstado(acervoParaEstado(e, a.dados), m.dados, senhaLocal), r.dados),
           me.dados,
         ),
+        notificacoes: no.dados.notificacoes,
+      }),
     }
   }
   const [a, r] = await Promise.all([acervoPublicoDaApi(), repositorioDaApi()])
@@ -502,7 +512,7 @@ async function carregarDadosDoPerfil(
 const trocar = <T extends { id: string }>(lista: T[], item: T): T[] =>
   lista.some((x) => x.id === item.id) ? lista.map((x) => (x.id === item.id ? item : x)) : [item, ...lista]
 
-const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil (RNF02)."
+const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil."
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [estado, setEstado] = useState<Estado>(() => carregarEstado() ?? criarEstadoInicial())
@@ -579,6 +589,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { estado: novo, relatorio: rel } = aplicarRotinas(atual, hoje, agora.toISOString(), agora.getHours(), {
         expirarReservas: !sessaoRef.current.token,
         cuidarDaFila: !sessaoRef.current.token,
+        gerarAvisos: !sessaoRef.current.token,
       })
       const mudou =
         rel.notificacoes + rel.reservasExpiradas + rel.filaExpirada + rel.contemplados + rel.vagasLiberadas > 0 ||
@@ -864,7 +875,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return falha(`Ano inválido. Informe um ano entre 1400 e ${anoAtual}.`)
       }
       const secao = dados.secao.trim().toUpperCase()
-      if (!LETRAS_SECAO.includes(secao)) return falha("A seção deve ser uma letra de A a Z (RN22).")
+      if (!LETRAS_SECAO.includes(secao)) return falha("A seção deve ser uma letra de A a Z.")
       if (!isbnValido(dados.isbn)) return falha("ISBN inválido. Confira os dígitos (ISBN-10 ou ISBN-13).")
       const chaveIsbn = dados.isbn.replace(/[-\s]/g, "")
       const duplicado = atual.livros.find((l) => l.id !== id && l.isbn.replace(/[-\s]/g, "") === chaveIsbn)
@@ -896,7 +907,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         autores,
         livros: id ? atual.livros.map((l) => (l.id === id ? livro : l)) : [...atual.livros, livro],
       })
-      return ok(id ? "Obra atualizada." : "Obra cadastrada. Agora cadastre os exemplares (RN16).")
+      return ok(id ? "Obra atualizada." : "Obra cadastrada. Agora cadastre os exemplares.")
     }
 
     const excluirLivro = async (id: string): Promise<Resultado> => {
@@ -932,7 +943,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!ehAdmin()) return falha(NEGADO) // RN15
       const atual = ref.current
       if (!atual.livros.some((l) => l.id === livroId)) {
-        return falha("Não é possível cadastrar o exemplar: a obra não está cadastrada (RN16).")
+        return falha("Não é possível cadastrar o exemplar: a obra não está cadastrada.")
       }
       const lista = tombamentos.map((t) => t.trim().toUpperCase()).filter(Boolean)
       if (lista.length === 0) return falha("Informe ao menos um código de tombamento.")
@@ -1041,12 +1052,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // RN31: somente ociosos ou danificados
       if (!STATUS_DESBASTAVEIS.includes(ex.status)) {
         return falha(
-          `Somente exemplares ociosos ou danificados podem ser desbastados (RN31). Status atual: ${labelStatus[ex.status]}.`,
+          `Somente exemplares ociosos ou danificados podem ser desbastados. Status atual: ${labelStatus[ex.status]}.`,
         )
       }
       // RN24: relatório justificando a decisão
       if (relatorioTexto.trim().length < MIN_JUSTIFICATIVA) {
-        return falha(`Anexe o relatório justificando o desbastamento (mínimo ${MIN_JUSTIFICATIVA} caracteres) (RN24).`)
+        return falha(`Anexe o relatório justificando o desbastamento (mínimo ${MIN_JUSTIFICATIVA} caracteres).`)
       }
       if (viaApi()) {
         const r = await desbastarNaApi(sessao.token!, id, relatorioTexto.trim())
@@ -1301,10 +1312,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
       // RN06: somente sócios-leitores ativos
-      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem fazer empréstimos (RN06).")
+      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem fazer empréstimos.")
       // RN08: dívidas pendentes bloqueiam
       const motivo = motivoBloqueio(atual, socioId, hoje)
-      if (motivo) return falha(`Empréstimo bloqueado: o sócio-leitor possui ${motivo} (RN08).`)
+      if (motivo) return falha(`Empréstimo bloqueado: o sócio-leitor possui ${motivo}.`)
 
       const ex = atual.exemplares.find((x) => x.id === exemplarId && !x.baixa)
       if (!ex) return falha("Exemplar não encontrado no acervo.")
@@ -1312,11 +1323,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!livro) return falha("Obra não encontrada.")
       // RN04 / RNF09: obras restritas
       if (!categoriaEmprestavel(livro.categoria)) {
-        return falha(`${labelCategoria[livro.categoria]}: obra de consulta local, não pode ser emprestada (RN04).`)
+        return falha(`${labelCategoria[livro.categoria]}: obra de consulta local, não pode ser emprestada.`)
       }
       // RN14: exemplar sem empréstimo ativo
       if (emprestimoAtivoDoExemplar(atual, exemplarId)) {
-        return falha("Este exemplar já possui um empréstimo ativo (RN14).")
+        return falha("Este exemplar já possui um empréstimo ativo.")
       }
       const reserva = reservaAtivaDoExemplar(atual, exemplarId)
       if (reserva && reserva.socioId !== socioId) {
@@ -1327,7 +1338,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       // RN01: no máximo 3 exemplares simultâneos
       if (emprestimosAtivos(atual, socioId).length >= MAX_EXEMPLARES_SIMULTANEOS) {
-        return falha(`Limite de ${MAX_EXEMPLARES_SIMULTANEOS} exemplares simultâneos atingido (RN01).`)
+        return falha(`Limite de ${MAX_EXEMPLARES_SIMULTANEOS} exemplares simultâneos atingido.`)
       }
 
       const emp: Emprestimo = {
@@ -1362,7 +1373,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const atual = ref.current
       const emp = atual.emprestimos.find((x) => x.id === id)
       if (!emp || emp.status !== "ativo") return falha("Somente empréstimos em andamento podem ser renovados.")
-      if (emp.renovacoes >= MAX_RENOVACOES) return falha(`Limite de ${MAX_RENOVACOES} renovações atingido (RN17).`)
+      if (emp.renovacoes >= MAX_RENOVACOES) return falha(`Limite de ${MAX_RENOVACOES} renovações atingido.`)
       if (diasAtraso(emp.dataPrevista, hoje) > 0) {
         return falha("Empréstimo em atraso não pode ser renovado. Registre a devolução para calcular a multa.")
       }
@@ -1452,9 +1463,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!emp || emp.status !== "ativo") return falha("Empréstimo não está em andamento.")
       if (dano) {
         if (dano.relatorio.trim().length < MIN_JUSTIFICATIVA) {
-          return falha(`Descreva o dano no relatório (mínimo ${MIN_JUSTIFICATIVA} caracteres) (RF15).`)
+          return falha(`Descreva o dano no relatório (mínimo ${MIN_JUSTIFICATIVA} caracteres).`)
         }
-        if (!(dano.valor > 0)) return falha("Informe o valor da multa pelo dano (RN13).")
+        if (!(dano.valor > 0)) return falha("Informe o valor da multa pelo dano.")
       }
       if (viaApi()) {
         // RN03 (multa por atraso) e RF15 (dano) calculados no servidor
@@ -1630,7 +1641,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // -------------------- reservas --------------------
     const reservarLivro = async (livroId: string, socioIdParam?: string): Promise<Resultado> => {
       const socioId = ehSocio() ? sessao.usuarioId : socioIdParam
-      if (!ehAdmin() && !ehSocio()) return falha("Entre como sócio-leitor para reservar (RN06).")
+      if (!ehAdmin() && !ehSocio()) return falha("Entre como sócio-leitor para reservar.")
       if (!socioId) return falha("Selecione o sócio-leitor.")
       if (viaApi() || socioViaApi()) {
         const r = await reservarNaApi(sessao.token!, livroId, ehAdmin() ? socioId : undefined)
@@ -1646,18 +1657,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
-      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem reservar (RN06).")
+      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem reservar.")
       const livro = atual.livros.find((l) => l.id === livroId)
       if (!livro) return falha("Obra não encontrada.")
-      if (!categoriaEmprestavel(livro.categoria)) return falha("Obra de consulta local: não pode ser reservada (RN04).")
+      if (!categoriaEmprestavel(livro.categoria)) return falha("Obra de consulta local: não pode ser reservada.")
       const motivo = motivoBloqueio(atual, socioId, hoje)
-      if (motivo) return falha(`Reserva bloqueada: há ${motivo} (RN08).`)
+      if (motivo) return falha(`Reserva bloqueada: há ${motivo}.`)
       if (reservasAtivas(atual, socioId).some((r) => atual.exemplares.find((x) => x.id === r.exemplarId)?.livroId === livroId)) {
         return falha("Você já possui uma reserva ativa desta obra.")
       }
       const ocupados = emprestimosAtivos(atual, socioId).length + reservasAtivas(atual, socioId).length
       if (ocupados >= MAX_EXEMPLARES_SIMULTANEOS) {
-        return falha(`Empréstimos e reservas somados não podem passar de ${MAX_EXEMPLARES_SIMULTANEOS} (RN01).`)
+        return falha(`Empréstimos e reservas somados não podem passar de ${MAX_EXEMPLARES_SIMULTANEOS}.`)
       }
       const ex = exemplaresDoLivro(atual, livroId).find(
         (x) => x.status === "disponivel" && !emprestimoAtivoDoExemplar(atual, x.id),
@@ -1707,34 +1718,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return ok("Reserva cancelada.")
     }
 
-    // -------------------- notificações --------------------
-    const executarRotinaAgora = () => {
-      if (!ehAdmin()) return null
-      return rodarRotina(true)
-    }
-
-    const reenviarNotificacao = (id: string): Resultado => {
+    // -------------------- avisos de prazo (RF05) --------------------
+    // Com a API, quem gera os avisos é o servidor; sem ela, a rotina do navegador
+    const executarRotinaAgora = async (): Promise<Resultado> => {
       if (!ehAdmin()) return falha(NEGADO)
-      const atual = ref.current
-      const n = atual.notificacoes.find((x) => x.id === id)
-      if (!n) return falha("Notificação não encontrada.")
-      const socio = atual.socios.find((s) => s.id === n.socioId)
-      if (!socio || !emailValido(socio.email)) {
-        return falha("O cadastro continua sem e-mail válido. Atualize o cadastro do sócio-leitor antes de reenviar.")
+      if (viaApi()) {
+        const r = await executarRotinaDeAvisosNaApi(sessao.token!)
+        if (r.tipo !== "ok") return falhaDaApi(r)
+        commit({ ...ref.current, notificacoes: r.dados.notificacoes, ultimaRotina: hoje })
+        return ok(r.dados.mensagem)
       }
-      const nova: Notificacao = {
-        ...n,
-        id: uuid(),
-        destinatario: socio.email,
-        data: agora(),
-        status: "enviado",
-        motivoFalha: undefined,
-      }
-      commit({
-        ...atual,
-        notificacoes: [nova, ...atual.notificacoes.map((x) => (x.id === id ? { ...x, tratadaEm: agora() } : x))],
-      })
-      return ok(`Notificação reenviada para ${socio.email}.`)
+      const rel = rodarRotina(true)
+      return ok(
+        rel && rel.notificacoes > 0
+          ? `${rel.notificacoes} aviso(s) gerado(s).`
+          : "Nenhum aviso pendente para hoje: todos os avisos devidos já foram gerados.",
+      )
     }
 
     // -------------------- mesas de estudo --------------------
@@ -1779,18 +1778,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const AVISO_TOLERANCIA = `Apresente-se no balcão em até ${TOLERANCIA_USO_MINUTOS} minutos do início do turno; sem a confirmação de uso, a vaga é liberada.`
 
     const agendarMesa = async (socioIdParam: string, data: string, turno: Turno, mesaId?: string): Promise<ResultadoAgendamento> => {
-      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar mesas de estudo (RN06).")
+      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar mesas de estudo.")
       if (mesasViaApi()) return respostaMesas(await agendarNaApi(sessao.token!, pedidoMesa(socioIdParam, data, turno, { mesaId })))
       const socioId = socioDaOperacao(socioIdParam)
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
-      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem agendar mesas (RN06).")
+      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos podem agendar mesas.")
       const erroTurno = validarTurno(data, turno)
       if (erroTurno) return falha(erroTurno)
       // RN05: um turno por dia
       const existente = agendamentoNoDia(atual, socio.id, data)
       if (existente) {
-        return falha(`Já existe um agendamento neste dia (${labelTurno[existente.turno]}). O limite é 1 turno por dia (RN05).`)
+        return falha(`Já existe um agendamento neste dia (${labelTurno[existente.turno]}). O limite é 1 turno por dia.`)
       }
       if (mesaId && atual.mesas.find((m) => m.id === mesaId)?.espaco === "kids") {
         return falha("Para agendar o Espaço Kids, informe os dados da criança.")
@@ -1798,10 +1797,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // RN09: espaço disponível no horário escolhido
       const livres = mesasLivres(atual, data, turno)
       if (livres.length === 0) {
-        return { ok: false, mensagem: "Todas as mesas estão ocupadas neste turno (RN09).", ofereceFila: true }
+        return { ok: false, mensagem: "Todas as mesas estão ocupadas neste turno.", ofereceFila: true }
       }
       const mesa = mesaId ? livres.find((m) => m.id === mesaId) : livres[0]
-      if (!mesa) return falha("A mesa escolhida já está ocupada neste turno (RN09). Escolha outra.")
+      if (!mesa) return falha("A mesa escolhida já está ocupada neste turno. Escolha outra.")
       const ag: Agendamento = {
         id: uuid(),
         mesaId: mesa.id,
@@ -1826,9 +1825,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       turno: Turno,
       c: CriancaKids,
     ): { erro: ResultadoAgendamento } | { socio: SocioLeitor; crianca: CriancaKids } => {
-      if (!ehAdmin() && !ehSocio()) return { erro: falha("Somente sócios-leitores podem agendar o Espaço Kids (RN06).") }
+      if (!ehAdmin() && !ehSocio()) return { erro: falha("Somente sócios-leitores podem agendar o Espaço Kids.") }
       const socio = ref.current.socios.find((s) => s.id === socioDaOperacao(socioIdParam))
-      if (!socio || !socio.ativo) return { erro: falha("Somente sócios-leitores ativos podem agendar o Espaço Kids (RN06).") }
+      if (!socio || !socio.ativo) return { erro: falha("Somente sócios-leitores ativos podem agendar o Espaço Kids.") }
       const erroResponsavel = validarResponsavelKids(socio, data)
       if (erroResponsavel) return { erro: falha(erroResponsavel) }
       const erroTurno = validarTurno(data, turno)
@@ -1853,7 +1852,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       c: CriancaKids,
       mesaId?: string,
     ): Promise<ResultadoAgendamento> => {
-      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar o Espaço Kids (RN06).")
+      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar o Espaço Kids.")
       if (mesasViaApi()) {
         const recusa = responsavelRecusado(socioIdParam, data)
         if (recusa) return falha(recusa)
@@ -1866,15 +1865,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const existente = agendamentoKidsNoDia(atual, p.crianca.cpf, data)
       if (existente) {
         return falha(
-          `${primeiroNome(p.crianca.nome)} já tem agendamento no Espaço Kids neste dia (${labelTurno[existente.turno]}). O limite é 1 turno por dia (RN05).`,
+          `${primeiroNome(p.crianca.nome)} já tem agendamento no Espaço Kids neste dia (${labelTurno[existente.turno]}). O limite é 1 turno por dia.`,
         )
       }
       const livres = mesasLivres(atual, data, turno, "kids")
       if (livres.length === 0) {
-        return { ok: false, mensagem: "Todas as mesas do Espaço Kids estão ocupadas neste turno (RN09).", ofereceFila: true }
+        return { ok: false, mensagem: "Todas as mesas do Espaço Kids estão ocupadas neste turno.", ofereceFila: true }
       }
       const mesa = mesaId ? livres.find((m) => m.id === mesaId) : livres[0]
-      if (!mesa) return falha("A mesa escolhida já está ocupada neste turno (RN09). Escolha outra.")
+      if (!mesa) return falha("A mesa escolhida já está ocupada neste turno. Escolha outra.")
       const ag: Agendamento = {
         id: uuid(),
         mesaId: mesa.id,
@@ -1898,7 +1897,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       turno: Turno,
       c: CriancaKids,
     ): Promise<ResultadoAgendamento> => {
-      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar o Espaço Kids (RN06).")
+      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem agendar o Espaço Kids.")
       if (mesasViaApi()) {
         const recusa = responsavelRecusado(socioIdParam, data)
         if (recusa) return falha(recusa)
@@ -1908,7 +1907,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if ("erro" in p) return p.erro
       const atual = ref.current
       if (agendamentoKidsNoDia(atual, p.crianca.cpf, data)) {
-        return falha(`${primeiroNome(p.crianca.nome)} já tem agendamento no Espaço Kids neste dia (RN05).`)
+        return falha(`${primeiroNome(p.crianca.nome)} já tem agendamento no Espaço Kids neste dia.`)
       }
       if (mesasLivres(atual, data, turno, "kids").length > 0) {
         return falha("Há mesas livres no Espaço Kids neste turno: faça o agendamento direto.")
@@ -1980,7 +1979,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const mesa = atual.mesas.find((m) => m.id === ag.mesaId)?.nome ?? "Mesa"
       const pulados =
         ignorados > 0
-          ? ` ${ignorados} sócio(s)-leitor(es) da fila foram ignorados por já terem agendamento neste dia (RN05).`
+          ? ` ${ignorados} sócio(s)-leitor(es) da fila foram ignorados por já terem agendamento neste dia.`
           : ""
       if (!contemplado) {
         const motivo = ignorados > 0 ? "Ninguém da fila pôde receber a vaga" : "Sem fila de espera"
@@ -2030,20 +2029,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     const entrarNaFila = async (socioIdParam: string, data: string, turno: Turno): Promise<ResultadoAgendamento> => {
-      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem entrar na fila (RN06).")
+      if (!ehAdmin() && !ehSocio()) return falha("Somente sócios-leitores podem entrar na fila.")
       if (mesasViaApi()) return respostaMesas(await entrarNaFilaNaApi(sessao.token!, pedidoMesa(socioIdParam, data, turno)))
       const socioId = socioDaOperacao(socioIdParam)
       const atual = ref.current
       const socio = atual.socios.find((s) => s.id === socioId)
-      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos (RN06).")
+      if (!socio || !socio.ativo) return falha("Somente sócios-leitores ativos.")
       const erroTurno = validarTurno(data, turno)
       if (erroTurno) return falha(erroTurno)
-      if (agendamentoNoDia(atual, socio.id, data)) return falha("Você já tem um agendamento neste dia (RN05).")
+      if (agendamentoNoDia(atual, socio.id, data)) return falha("Você já tem um agendamento neste dia.")
       if (mesasLivres(atual, data, turno).length > 0) return falha("Há mesas livres neste turno: faça o agendamento direto.")
       const fila = filaDoTurno(atual, data, turno)
       if (fila.some((f) => f.socioId === socio.id)) return falha("Você já está na fila deste turno.")
       if (atual.fila.some((f) => f.socioId === socio.id && f.data === data && f.status === "aguardando")) {
-        return falha("Você já está na fila de outro turno neste dia (RN05).")
+        return falha("Você já está na fila de outro turno neste dia.")
       }
       const entrada: EntradaFila = {
         id: uuid(),
@@ -2166,7 +2165,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const atual = ref.current
       // RN25: receptor precisa estar cadastrado
       const receptor = atual.instituicoes.find((i) => i.id === receptorId)
-      if (!receptor) return falha("O receptor precisa estar cadastrado antes da doação (RN25).")
+      if (!receptor) return falha("O receptor precisa estar cadastrado antes da doação.")
       if (exemplarIds.length === 0) return falha("Selecione o(s) exemplar(es) doado(s).")
       const exs = exemplarIds.map((id) => atual.exemplares.find((x) => x.id === id && !x.baixa))
       if (exs.some((x) => !x)) return falha("Exemplar não encontrado no acervo.")
@@ -2181,7 +2180,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const jaRecebidos = livrosDoadosPara(atual, receptorId)
         if (jaRecebidos + exs.length > MAX_DOACOES_PESSOA_FISICA) {
           return falha(
-            `Pessoa física pode receber no máximo ${MAX_DOACOES_PESSOA_FISICA} livro. ${receptor.nome} já recebeu ${jaRecebidos} (RN26).`,
+            `Pessoa física pode receber no máximo ${MAX_DOACOES_PESSOA_FISICA} livro. ${receptor.nome} já recebeu ${jaRecebidos}.`,
           )
         }
       }
@@ -2224,7 +2223,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       const atual = ref.current
       const receptor = atual.instituicoes.find((i) => i.id === receptorId)
-      if (!receptor) return falha("A instituição ou pessoa de origem precisa estar cadastrada (RN25).")
+      if (!receptor) return falha("A instituição ou pessoa de origem precisa estar cadastrada.")
       const r = await adicionarExemplares(livroId, tombamentos) // RN16 / RN20
       if (!r.ok) return r
       const depois = ref.current
@@ -2252,10 +2251,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const atual = ref.current
       if (arq.titulo.trim().length < 3) return falha("Informe o título do arquivo.")
       if (arq.vinculo.tipo === "livro" && !atual.livros.some((l) => l.id === (arq.vinculo as { livroId: string }).livroId)) {
-        return falha("A obra vinculada não está cadastrada (RF08).")
+        return falha("A obra vinculada não está cadastrada.")
       }
       if (arq.vinculo.tipo === "pasta" && !atual.pastas.some((p) => p.id === (arq.vinculo as { pastaId: string }).pastaId)) {
-        return falha("A pasta vinculada não está cadastrada (RF08).")
+        return falha("A pasta vinculada não está cadastrada.")
       }
       if (viaApi()) {
         const r = await anexarDocumentoNaApi(sessao.token!, idArmazenado, { ...arq, titulo: arq.titulo.trim() })
@@ -2265,7 +2264,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       const novo: ArquivoDigital = { ...arq, titulo: arq.titulo.trim(), id: idArmazenado, dataUpload: hoje }
       commit({ ...atual, arquivos: [novo, ...atual.arquivos] })
-      return ok("Arquivo anexado e comprimido para armazenamento (RNF13).")
+      return ok("Arquivo anexado e comprimido para armazenamento.")
     }
 
     const excluirArquivo = async (id: string): Promise<Resultado> => {
@@ -2563,7 +2562,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       reservarLivro,
       cancelarReserva,
       executarRotinaAgora,
-      reenviarNotificacao,
       agendarMesa,
       entrarNaFila,
       cancelarAgendamento,

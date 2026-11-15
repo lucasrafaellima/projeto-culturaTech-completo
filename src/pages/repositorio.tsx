@@ -90,9 +90,8 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <p className="max-w-2xl text-sm text-muted-foreground text-pretty">
-          Digitalizações de obras raras e de pastas com recortes históricos, para consulta sem manuseio do original
-          (RF08, RF17).
-          {ehAdmin && economia > 0 && ` A compressão já economizou ${formatBytes(economia)} de armazenamento (RNF13).`}
+          Digitalizações de obras raras e de pastas com recortes históricos, para consulta sem manuseio do original.
+          {ehAdmin && economia > 0 && ` A compressão já economizou ${formatBytes(economia)} de armazenamento.`}
         </p>
         {ehAdmin && (
           <div className="flex gap-2">
@@ -243,7 +242,7 @@ export function RepositorioPage({ arquivoInicial }: { arquivoInicial: string | n
                   {restrita ? (
                     <>
                       <strong>{labelCategoria[livro.categoria]}: somente consulta digital.</strong> O original de{" "}
-                      <strong>{livro.titulo}</strong> não pode ser emprestado (RN04); esta digitalização substitui o
+                      <strong>{livro.titulo}</strong> não pode ser emprestado; esta digitalização substitui o
                       manuseio.{" "}
                     </>
                   ) : (
@@ -374,7 +373,7 @@ function UploadModal({
       setErro(
         formato === "pdf"
           ? "Formato não permitido: escolha um arquivo PDF (.pdf)."
-          : "Formato não permitido: escolha uma imagem WEBP, JPG ou PNG (RNF12).",
+          : "Formato não permitido: escolha uma imagem WEBP, JPG ou PNG.",
       )
     } else if (formato === "imagem" && f.size > LIMITE_IMAGEM_ORIGINAL_MB * 1024 * 1024) {
       // o PDF é conferido depois da compressão, em armazenarPdf
@@ -385,7 +384,7 @@ function UploadModal({
   async function enviar() {
     if (!arquivo) return setErro("Selecione o arquivo.")
     if (erro) return
-    if (!vinculo) return setErro("Vincule o arquivo a uma obra ou pasta já cadastrada (RF08).")
+    if (!vinculo) return setErro("Vincule o arquivo a uma obra ou pasta já cadastrada.")
     const [tipo, id] = vinculo.split(":")
     const v: VinculoArquivo = tipo === "livro" ? { tipo: "livro", livroId: id } : { tipo: "pasta", pastaId: id }
     setEnviando(true)
@@ -443,7 +442,7 @@ function UploadModal({
           dica={
             formato === "pdf"
               ? `Somente .pdf, até ${LIMITE_PDF_MB} MB depois da compressão.`
-              : `Somente WEBP, JPG e PNG (RNF12), até ${LIMITE_IMAGEM_ORIGINAL_MB} MB.`
+              : `Somente WEBP, JPG e PNG, até ${LIMITE_IMAGEM_ORIGINAL_MB} MB.`
           }
         >
           {(id) => (
@@ -495,7 +494,7 @@ function UploadModal({
             <Aviso tipo="erro">{erro}</Aviso>
           </div>
         ) : (
-          <Aviso tipo="info">O arquivo é comprimido antes de ser armazenado (RNF13).</Aviso>
+          <Aviso tipo="info">O arquivo é comprimido antes de ser armazenado.</Aviso>
         )}
         <Rodape>
           <Button variante="outline" onClick={onFechar}>

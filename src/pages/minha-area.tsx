@@ -69,7 +69,10 @@ export function MinhaAreaPage() {
   const meusAgendamentos = agendamentos
     .filter((a) => a.socioId === socio.id && a.status === "confirmado" && a.data >= hoje)
     .sort((a, b) => a.data.localeCompare(b.data))
-  const meusEmails = notificacoes.filter((n) => n.socioId === socio.id && n.status === "enviado").slice(0, 5)
+  const meusAvisos = notificacoes
+    .filter((n) => n.socioId === socio.id)
+    .sort((a, b) => b.data.localeCompare(a.data))
+    .slice(0, 5)
 
   function enviarJustificativa() {
     if (!justificando) return
@@ -107,7 +110,7 @@ export function MinhaAreaPage() {
                 </>
               )}
               {d.multasAbertas.length > 0 && <>Multas em aberto: {formatCurrency(d.totalMultas)}. </>}
-              <strong>Novos empréstimos e reservas estão bloqueados até a regularização (RN08).</strong>
+              <strong>Novos empréstimos e reservas estão bloqueados até a regularização.</strong>
             </p>
           </div>
         </div>
@@ -272,14 +275,15 @@ export function MinhaAreaPage() {
             </div>
           </Card>
 
-          {/* E-mails recebidos (RF05) */}
+          {/* Avisos de prazo no sistema (RF05) */}
           <Card>
-            <CardHeader titulo="Avisos enviados por e-mail" icone={<Mail className="h-5 w-5" />} />
+            <CardHeader titulo="Avisos de prazo" icone={<Mail className="h-5 w-5" />} />
             <div className="divide-y divide-border">
-              {meusEmails.length === 0 && <Vazio>Nenhum aviso enviado recentemente.</Vazio>}
-              {meusEmails.map((n) => (
-                <div key={n.id} className="p-5">
+              {meusAvisos.length === 0 && <Vazio>Nenhum aviso recente.</Vazio>}
+              {meusAvisos.map((n) => (
+                <div key={n.id} className="space-y-1 p-5">
                   <p className="text-sm font-medium">{n.assunto}</p>
+                  <p className="text-sm text-muted-foreground text-pretty">{n.corpo}</p>
                   <p className="text-xs text-muted-foreground">{formatDateTime(n.data)}</p>
                 </div>
               ))}
@@ -303,8 +307,7 @@ export function MinhaAreaPage() {
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Multa de <strong className="text-foreground">{formatCurrency(justificando.valor)}</strong> ({descricaoMulta(justificando).toLowerCase()}).
-              Explique o motivo com detalhes. A administração da biblioteca vai avaliar e pode abonar a multa ou mantê-la
-              (RN07).
+              Explique o motivo com detalhes. A administração da biblioteca vai avaliar e pode abonar a multa ou mantê-la.
             </p>
             <Campo rotulo="Justificativa" dica={`${texto.trim().length}/${MIN_JUSTIFICATIVA} caracteres mínimos`}>
               {(id) => <Textarea id={id} rows={5} value={texto} onChange={(e) => setTexto(e.target.value)} />}

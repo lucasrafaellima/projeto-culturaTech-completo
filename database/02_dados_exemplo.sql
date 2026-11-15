@@ -5,7 +5,7 @@
 --   Maria Joana    (529.982.247-25) devolução atrasada + multa: bloqueada
 --   João Pedro     (153.509.460-56) regular, reserva + empréstimo vencendo em 2 dias
 --   Ana Beatriz    (714.602.380-01) multa com justificativa em análise
---   Pedro Henrique (385.613.920-61) sem e-mail: falha de notificação
+--   Pedro Henrique (385.613.920-61) sem e-mail; aviso de prazo na Minha Área
 --   Lúcia Ferreira (020.112.940-02) dois exemplares atrasados: multa
 --                  corrente somada por exemplar (US11)
 --   Lucas Ferreira (861.904.237-87) 17 anos: tem conta, mas não agenda o Espaço Kids (US29)
@@ -129,11 +129,11 @@ INSERT INTO reserva (socio_id, exemplar_id, data_reserva, expira_em) VALUES
 INSERT INTO emprestimo (id, socio_id, exemplar_id, data_emprestimo, data_prevista) VALUES
     ('f0000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000004',
      'e0000000-0000-0000-0000-000000000005', CURRENT_DATE - 13, CURRENT_DATE + 1);
-INSERT INTO notificacao (socio_id, emprestimo_id, tipo, referencia, destinatario, assunto, corpo, status, motivo_falha) VALUES
+INSERT INTO notificacao (socio_id, emprestimo_id, tipo, referencia, destinatario, assunto, corpo, status) VALUES
     ('50000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000003', 'lembrete',
-     CURRENT_DATE + 1, '(sem e-mail)', 'Lembrete: devolução de "Capitães da Areia"',
+     CURRENT_DATE + 1, 'Minha Área', 'Lembrete: devolução de "Capitães da Areia"',
      'Olá, Pedro! O prazo de devolução do livro "Capitães da Areia" termina amanhã.',
-     'falha', 'Cadastro sem e-mail válido. Atualize o cadastro do sócio-leitor.');
+     'enviado');
 
 -- Lúcia: dois exemplares atrasados (3 e 8 dias). A multa corrente soma
 -- R$ 1,00 por dia de cada exemplar: R$ 11,00 até hoje (US11 / RN03).

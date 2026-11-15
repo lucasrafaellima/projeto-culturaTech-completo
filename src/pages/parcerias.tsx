@@ -70,8 +70,8 @@ export function ParceriasPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <p className="max-w-2xl text-sm text-muted-foreground text-pretty">
-          Cadastro de instituições e pessoas físicas (RF13). Toda doação ou aquisição precisa estar vinculada a um cadastro
-          (RN25), garantindo a rastreabilidade da origem e do destino das obras.
+          Cadastro de instituições e pessoas físicas. Toda doação ou aquisição precisa estar vinculada a um cadastro
+, garantindo a rastreabilidade da origem e do destino das obras.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button variante="outline" onClick={() => setEditando({ form: receptorVazio() })}>
@@ -125,7 +125,7 @@ export function ParceriasPage() {
                   <td className="p-4">
                     <p>Recebeu {doadosPara(i.id)} livro(s)</p>
                     {i.tipo === "pessoa_fisica" && (
-                      <p className="text-xs text-muted-foreground">limite: {MAX_DOACOES_PESSOA_FISICA} (RN26)</p>
+                      <p className="text-xs text-muted-foreground">limite: {MAX_DOACOES_PESSOA_FISICA}</p>
                     )}
                     {recebidosDe(i.id) > 0 && <p className="text-xs text-muted-foreground">Doou {recebidosDe(i.id)} ao acervo</p>}
                   </td>
@@ -234,7 +234,7 @@ export function ParceriasPage() {
               )}
             </Campo>
             {editando.form.tipo === "pessoa_fisica" && (
-              <Aviso tipo="info">Pessoa física pode receber no máximo {MAX_DOACOES_PESSOA_FISICA} livro em doação (RN26).</Aviso>
+              <Aviso tipo="info">Pessoa física pode receber no máximo {MAX_DOACOES_PESSOA_FISICA} livro em doação.</Aviso>
             )}
             <Campo rotulo="Nome">
               {(id) => <Input id={id} value={editando.form.nome} onChange={(e) => setEditando({ ...editando, form: { ...editando.form, nome: e.target.value } })} />}
@@ -288,7 +288,7 @@ export function ParceriasPage() {
           <div className="space-y-3">
             <Campo
               rotulo={mov.tipo === "doacao" ? "Receptor" : "Origem (doador ou fornecedor)"}
-              dica="Somente instituições ou pessoas já cadastradas (RN25)."
+              dica="Somente instituições ou pessoas já cadastradas."
             >
               {(id) => (
                 <Select id={id} value={mov.receptorId} onChange={(e) => setMov({ ...mov, receptorId: e.target.value })}>
@@ -303,7 +303,7 @@ export function ParceriasPage() {
             </Campo>
             {mov.tipo === "doacao" && receptorMov?.tipo === "pessoa_fisica" && (
               <Aviso tipo={doadosPara(receptorMov.id) >= MAX_DOACOES_PESSOA_FISICA ? "erro" : "info"}>
-                {receptorMov.nome} já recebeu {doadosPara(receptorMov.id)} de {MAX_DOACOES_PESSOA_FISICA} livro permitido (RN26).
+                {receptorMov.nome} já recebeu {doadosPara(receptorMov.id)} de {MAX_DOACOES_PESSOA_FISICA} livro permitido.
               </Aviso>
             )}
             <Campo rotulo="Obra">
@@ -344,7 +344,7 @@ export function ParceriasPage() {
               </fieldset>
             )}
             {mov.tipo === "aquisicao" && (
-              <Campo rotulo="Códigos de tombamento dos novos exemplares" dica="Um por linha. Cada exemplar recebe um UUID (RN20).">
+              <Campo rotulo="Códigos de tombamento dos novos exemplares" dica="Um por linha. Cada exemplar recebe um UUID.">
                 {(id) => <Textarea id={id} rows={3} value={mov.tombamentos} onChange={(e) => setMov({ ...mov, tombamentos: e.target.value })} />}
               </Campo>
             )}

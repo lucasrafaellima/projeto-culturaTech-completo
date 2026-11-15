@@ -156,7 +156,7 @@ export async function garantirArquivosDemo(): Promise<TamanhosDemo> {
     "Com o cultivo do fumo, a localidade cresceu e tornou-se um dos",
     "principais centros econômicos do agreste alagoano.",
     "",
-    "Este arquivo substitui o manuseio físico da obra original (RN04).",
+    "Este arquivo substitui o manuseio físico da obra original.",
   ])
   const pdf2 = gerarPdf("Folhetos do Agreste Alagoano", [
     "Versão digital do exemplar único, para preservação do original.",

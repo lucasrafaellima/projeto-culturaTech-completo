@@ -64,7 +64,7 @@ const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000
 conferir("upload sem token: 401", (await enviar(pdf, "application/pdf")).status === 401)
 conferir("upload com token de sócio: 403", (await enviar(pdf, "application/pdf", joao)).status === 403)
 const txt = await enviar(Buffer.from("olá"), "text/plain", admin)
-conferir("formato não suportado: 400", txt.status === 400 && txt.corpo.mensagem.includes("RNF12"), txt.corpo)
+conferir("formato não suportado: 400", txt.status === 400 && txt.corpo.mensagem.includes("Formato não suportado"), txt.corpo)
 const falso = await enviar(Buffer.from("<html>não é pdf</html>"), "application/pdf", admin)
 conferir("conteúdo que não é PDF: 400", falso.status === 400, falso.corpo)
 const compErrada = await enviar(png, "image/png", admin, { "X-Compressao": "gzip" })
@@ -131,7 +131,7 @@ conferir("título curto: 400", docCurto.status === 400, docCurto.corpo)
 const semObra = await chamar("POST", "/documentos", {
   arquivoId: idPdf, titulo: "Ata", formato: "pdf", vinculo: { tipo: "livro", livroId: "00000000-0000-0000-0000-000000000000" },
 }, admin)
-conferir("RF08: obra inexistente: 404", semObra.status === 404 && semObra.corpo.mensagem.includes("RF08"), semObra.corpo)
+conferir("RF08: obra inexistente: 404", semObra.status === 404 && semObra.corpo.mensagem.includes("não está cadastrada"), semObra.corpo)
 const formatoErrado = await chamar("POST", "/documentos", { arquivoId: idPdf, titulo: "Ata", formato: "imagem", vinculo: { tipo: "livro", livroId: VIDAS_SECAS } }, admin)
 conferir("formato diferente do arquivo: 400", formatoErrado.status === 400, formatoErrado.corpo)
 const comoSocio = await chamar("POST", "/documentos", { arquivoId: idPdf, titulo: "Ata", formato: "pdf", vinculo: { tipo: "livro", livroId: VIDAS_SECAS } }, joao)

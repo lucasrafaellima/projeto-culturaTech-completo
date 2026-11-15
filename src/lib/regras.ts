@@ -33,7 +33,6 @@ import {
   dataValida,
   diffDias,
   diasAtraso,
-  emailValido,
   formatCurrency,
   formatDate,
   idade,
@@ -492,19 +491,17 @@ function montarNotificacao(
       corpo: `Olá, ${nome}. O livro "${titulo}" deveria ter sido devolvido em ${prazo} e está com ${diasAtraso(emp.dataPrevista, hoje)} dia(s) de atraso. A multa é de R$ 1,00 por dia e novos empréstimos ficam bloqueados até a regularização.`,
     },
   }
-  const semEmail = !socio.email || !emailValido(socio.email)
   return {
     id: uuid(),
     socioId: socio.id,
     emprestimoId: emp.id,
     tipo,
     referencia: emp.dataPrevista,
-    destinatario: socio.email || "(sem e-mail)",
+    destinatario: "Minha Área",
     assunto: textos[tipo].assunto,
     corpo: textos[tipo].corpo,
     data: agora,
-    status: semEmail ? "falha" : "enviado",
-    motivoFalha: semEmail ? "Cadastro sem e-mail válido. Atualize o cadastro do sócio-leitor." : undefined,
+    status: "enviado",
   }
 }
 
@@ -539,7 +536,6 @@ export function gerarNotificacoes(e: Estado, hoje: string, agora: string): Notif
 // ------------------------------------------------------------
 export interface RelatorioRotina {
   notificacoes: number
-  falhas: number
   reservasExpiradas: number
   filaExpirada: number
   contemplados: number
@@ -553,12 +549,16 @@ export function aplicarRotinas(
   horaAtual: number,
   // com os dados no banco, quem expira as reservas e cuida da fila e das vagas sem uso é o
   // servidor. O navegador nem conseguiria: só conhece os agendamentos dos outros sem identificação.
-  { expirarReservas = true, cuidarDaFila = true }: { expirarReservas?: boolean; cuidarDaFila?: boolean } = {},
+  // os avisos de prazo (RF05) também: com o banco, o servidor os gera e o navegador só os mostra
+  {
+    expirarReservas = true,
+    cuidarDaFila = true,
+    gerarAvisos = true,
+  }: { expirarReservas?: boolean; cuidarDaFila?: boolean; gerarAvisos?: boolean } = {},
 ): { estado: Estado; relatorio: RelatorioRotina } {
   let estado = e
   const relatorio: RelatorioRotina = {
     notificacoes: 0,
-    falhas: 0,
     reservasExpiradas: 0,
     filaExpirada: 0,
     contemplados: 0,
@@ -610,12 +610,11 @@ export function aplicarRotinas(
   }
   relatorio.contemplados = estado.fila.filter((f) => f.status === "contemplado").length - antes
 
-  // 4. Notificações de prazo (RF05)
-  const novas = gerarNotificacoes(estado, hoje, agora)
+  // 4. Avisos de prazo no sistema (RF05)
+  const novas = gerarAvisos ? gerarNotificacoes(estado, hoje, agora) : []
   if (novas.length > 0) {
     estado = { ...estado, notificacoes: [...novas, ...estado.notificacoes] }
     relatorio.notificacoes = novas.length
-    relatorio.falhas = novas.filter((n) => n.status === "falha").length
   }
 
   estado = { ...estado, ultimaRotina: hoje }

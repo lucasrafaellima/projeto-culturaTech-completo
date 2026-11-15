@@ -81,7 +81,7 @@ ok(diasAtraso(addDays(hoje, -3), hoje) === 3 && diasAtraso(addDays(hoje, 2), hoj
 const notifs = gerarNotificacoes(e, hoje, agora)
 ok(notifs.some((n) => n.socioId === "s2" && n.tipo === "lembrete"), "RF05 lembrete para quem vence em 2 dias")
 ok(notifs.some((n) => n.socioId === "s1" && n.tipo === "atraso"), "RF05 aviso de atraso")
-ok(notifs.some((n) => n.socioId === "s4" && n.status === "falha"), "RF05 falha registrada para cadastro sem e-mail")
+ok(notifs.some((n) => n.socioId === "s4" && n.status === "enviado" && n.destinatario === "Minha Área"), "RF05 aviso entregue no sistema, mesmo sem e-mail no cadastro")
 const r1 = aplicarRotinas(e, hoje, agora, 9)
 ok(gerarNotificacoes(r1.estado, hoje, agora).length === 0, "RF05 não reenvia o mesmo aviso")
 

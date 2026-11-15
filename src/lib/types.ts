@@ -186,13 +186,11 @@ export interface Notificacao {
   emprestimoId: string
   tipo: TipoNotificacao
   referencia: string // data de referência (evita reenvio no mesmo dia)
-  destinatario: string
+  destinatario: string // onde o aviso foi entregue (Minha Área)
   assunto: string
   corpo: string
   data: string // ISO datetime
-  status: "enviado" | "falha"
-  motivoFalha?: string
-  tratadaEm?: string // falha tratada pelo administrador (reenvio)
+  status: "enviado" | "falha" // "falha" só em dados antigos, do tempo do envio por e-mail
 }
 
 // Mesas de estudo (RF10 / RF11) e Espaço Kids (US29)

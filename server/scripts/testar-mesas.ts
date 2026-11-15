@@ -117,9 +117,9 @@ if (horaLocal >= 12) {
 const a1 = await agendar({ data: D, turno: "manha", mesaId: estudo[0].id }, ana.token)
 conferir("agendar mesa escolhida: 201", a1.status === 201 && a1.corpo.mensagem.includes("agendada"), a1.corpo)
 const ocupada = await agendar({ data: D, turno: "manha", mesaId: estudo[0].id }, beto.token)
-conferir("mesa ocupada: 409 (RN09)", ocupada.status === 409 && ocupada.corpo.mensagem.includes("RN09"), ocupada.corpo)
+conferir("mesa ocupada: 409 (RN09)", ocupada.status === 409 && ocupada.corpo.mensagem.includes("ocupada"), ocupada.corpo)
 const outroTurno = await agendar({ data: D, turno: "tarde" }, ana.token)
-conferir("segundo turno no dia: 409 (RN05)", outroTurno.status === 409 && outroTurno.corpo.mensagem.includes("RN05"), outroTurno.corpo)
+conferir("segundo turno no dia: 409 (RN05)", outroTurno.status === 409 && outroTurno.corpo.mensagem.includes("neste dia"), outroTurno.corpo)
 const ignoraSocio = await agendar({ data: hojeMais(11), turno: "manha", socioId: beto.id }, ana.token)
 conferir(
   "sócio não agenda em nome de outro: vale o token",
@@ -264,7 +264,7 @@ conferir(
   minhaCrianca,
 )
 const mesmaCrianca = await agendar({ data: I, turno: "noite", crianca: bia }, beto.token)
-conferir("mesma criança duas vezes no dia, mesmo por outro sócio: 409 (RN05)", mesmaCrianca.status === 409 && mesmaCrianca.corpo.mensagem.includes("RN05"), mesmaCrianca.corpo)
+conferir("mesma criança duas vezes no dia, mesmo por outro sócio: 409 (RN05)", mesmaCrianca.status === 409 && mesmaCrianca.corpo.mensagem.includes("neste dia"), mesmaCrianca.corpo)
 const segundaCrianca = await agendar({ data: I, turno: "noite", crianca: crianca("Duda Souza", 4) }, eva.token)
 conferir("o sócio agenda para mais de uma criança", segundaCrianca.status === 201, segundaCrianca.corpo)
 
@@ -372,6 +372,57 @@ if (turnoAberto) {
   const deNovo = await chamar("POST", `/agendamentos/${novo.id}/uso`, {}, admin)
   conferir("confirmar duas vezes: 409", deNovo.status === 409 && deNovo.corpo.mensagem.includes("já foi confirmado"), deNovo.corpo)
 
+  // US31 c4 e c6: mais um sem confirmação; o primeiro da fila já tem agendamento no dia e é pulado,
+  // e o segundo recebe a vaga e sai da fila
+  const outroTurno = (["manha", "tarde", "noite"] as const).find((x) => x !== turno)!
+  const jaTem = await novoSocio("JaTem")
+  const proximo = await novoSocio("Proximo")
+  await pool.query(
+    "INSERT INTO culturatech.agendamento (mesa_id, socio_id, data, turno) VALUES ($1, $2, $3, $4)",
+    [estudo[0].id, jaTem.id, hojeLocal, outroTurno],
+  )
+  await pool.query(
+    `INSERT INTO culturatech.fila_espera (socio_id, data, turno, criado_em) VALUES
+       ($1, $3, $4, now() - interval '10 minutes'), ($2, $3, $4, now() - interval '5 minutes')`,
+    [jaTem.id, proximo.id, hojeLocal, turno],
+  )
+  await pool.query(
+    `UPDATE culturatech.agendamento SET uso_confirmado_em = NULL, criado_em = now() - interval '3 hours'
+      WHERE socio_id = $1 AND data = $2`,
+    [presentes[0].id, hojeLocal],
+  )
+  await chamar("GET", "/mesas", undefined, admin)
+  const filaDepois = await pool.query<{ socio_id: string; status: string; agendamento_id: string | null }>(
+    "SELECT socio_id, status, agendamento_id FROM culturatech.fila_espera WHERE socio_id = ANY($1::uuid[]) AND data = $2",
+    [[jaTem.id, proximo.id], hojeLocal],
+  )
+  const daFila = (id: string) => filaDepois.rows.find((r) => r.socio_id === id)
+  conferir(
+    "US31 c4: o primeiro da fila, já agendado no dia, é pulado e sai da fila",
+    daFila(jaTem.id)?.status === "desistiu",
+    filaDepois.rows,
+  )
+  const agProximo = await pool.query<{ socio_id: string; origem: string; status: string }>(
+    "SELECT socio_id, origem, status FROM culturatech.agendamento WHERE id = $1",
+    [daFila(proximo.id)?.agendamento_id],
+  )
+  conferir(
+    "US31 c6: a vaga vai ao próximo, em nome dele, e ele sai da fila",
+    daFila(proximo.id)?.status === "contemplado" && agProximo.rows[0]?.socio_id === proximo.id && agProximo.rows[0]?.origem === "fila",
+    { fila: filaDepois.rows, agendamento: agProximo.rows },
+  )
+
+  // US31 c5: sem ninguém na fila, a vaga do ausente volta a ficar livre
+  await pool.query(
+    `UPDATE culturatech.agendamento SET uso_confirmado_em = NULL, criado_em = now() - interval '3 hours'
+      WHERE socio_id = $1 AND data = $2`,
+    [presentes[1].id, hojeLocal],
+  )
+  await chamar("GET", "/mesas", undefined, admin)
+  const livre = await novoSocio("Livre")
+  const naVaga = await agendar({ data: hojeLocal, turno }, livre.token)
+  conferir("US31 c5: sem fila, a vaga liberada fica disponível para novo agendamento", naVaga.status === 201, naVaga.corpo)
+
   // Espaço Kids lotado hoje: confirmar o uso encerra a fila daquele turno
   const pais = await Promise.all(kids.map((_, i) => novoSocio(`Pai${i}`)))
   for (const [i, s] of pais.entries()) {
@@ -420,7 +471,7 @@ conferir(
   situacao.rows,
 )
 const inativo = await agendar({ socioId: dono.id, data: T, turno: "tarde" }, admin)
-conferir("sócio inativo não agenda (RN06)", inativo.status === 409 && inativo.corpo.mensagem.includes("RN06"), inativo.corpo)
+conferir("sócio inativo não agenda (RN06)", inativo.status === 409 && inativo.corpo.mensagem.includes("sócios-leitores ativos"), inativo.corpo)
 await chamar("POST", `/socios/${dono.id}/ativo`, {}, admin)
 
 const anon = await novoSocio("Anon")

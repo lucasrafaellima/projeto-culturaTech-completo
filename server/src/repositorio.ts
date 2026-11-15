@@ -80,16 +80,16 @@ rotasRepositorio.post("/documentos", async (req, res) => {
   const vinculo = (typeof corpo.vinculo === "object" && corpo.vinculo ? corpo.vinculo : {}) as Record<string, unknown>
   const livroId = vinculo.tipo === "livro" ? texto(vinculo.livroId) : null
   const pastaId = vinculo.tipo === "pasta" ? texto(vinculo.pastaId) : null
-  if (!livroId && !pastaId) throw new ErroRegra(400, "Vincule o arquivo a uma obra ou a uma pasta (RF08).")
+  if (!livroId && !pastaId) throw new ErroRegra(400, "Vincule o arquivo a uma obra ou a uma pasta.")
 
   const documento = await emTransacao(async (c) => {
     // RF08: o vínculo precisa existir
     if (livroId) {
       const l = UUID.test(livroId) ? await c.query("SELECT 1 FROM livro WHERE id = $1", [livroId]) : { rowCount: 0 }
-      if (!l.rowCount) throw new ErroRegra(404, "A obra vinculada não está cadastrada (RF08).")
+      if (!l.rowCount) throw new ErroRegra(404, "A obra vinculada não está cadastrada.")
     } else {
       const p = UUID.test(pastaId!) ? await c.query("SELECT 1 FROM pasta_historica WHERE id = $1", [pastaId]) : { rowCount: 0 }
-      if (!p.rowCount) throw new ErroRegra(404, "A pasta vinculada não está cadastrada (RF08).")
+      if (!p.rowCount) throw new ErroRegra(404, "A pasta vinculada não está cadastrada.")
     }
 
     const arq = (
@@ -123,7 +123,7 @@ rotasRepositorio.post("/documentos", async (req, res) => {
   })
   res.status(201).json({
     ok: true,
-    mensagem: "Arquivo anexado e comprimido para armazenamento (RNF13).",
+    mensagem: "Arquivo anexado e comprimido para armazenamento.",
     documento: documentoJson(documento),
   })
 })

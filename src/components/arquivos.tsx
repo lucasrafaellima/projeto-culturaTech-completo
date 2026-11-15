@@ -182,7 +182,7 @@ export function SeletorImagens({
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {enviando ? "Comprimindo..." : rotulo}
           </Button>
-          <p className="text-xs text-muted-foreground">Formatos aceitos: WEBP, JPG e PNG (RNF12).</p>
+          <p className="text-xs text-muted-foreground">Formatos aceitos: WEBP, JPG e PNG.</p>
         </>
       )}
       {erros.length > 0 && (

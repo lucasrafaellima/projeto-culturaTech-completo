@@ -21,7 +21,7 @@ npm run preview    # serve o build em http://localhost:4173
 | Sócio-leitor | `529.982.247-25` (Maria Joana) | `123456` | Devolução atrasada + multa: bloqueada, alerta no login |
 | Sócio-leitor | `153.509.460-56` (João Pedro) | `123456` | Regular, com reserva e empréstimo vencendo em 2 dias |
 | Sócio-leitor | `714.602.380-01` (Ana Beatriz) | `123456` | Multa com justificativa aguardando julgamento |
-| Sócio-leitor | `385.613.920-61` (Pedro Henrique) | `123456` | Cadastro sem e-mail: falha de notificação |
+| Sócio-leitor | `385.613.920-61` (Pedro Henrique) | `123456` | Cadastro sem e-mail; aviso de prazo na Minha Área |
 | Sócio-leitor | `861.904.237-87` (Lucas Ferreira) | `123456` | 17 anos: tem conta, mas não pode ser responsável no Espaço Kids (no navegador e no banco) |
 | Sócio-leitor | `020.112.940-02` (Lúcia Ferreira) | `123456` | Só no banco (`02_dados_exemplo.sql`): dois exemplares atrasados, multa corrente somada |
 
@@ -32,8 +32,14 @@ Os dados de demonstração têm datas relativas ao dia do primeiro acesso. Em **
 
 ```bash
 npm run verificar          # 98 verificações das regras puras (CSV, catalogação, multas, fila, uso das mesas, notificações...)
-npm run testar-navegador   # 79 testes de ponta a ponta no Chrome headless (exige `npm run preview` rodando)
+npm run testar-navegador   # 83 testes de ponta a ponta no Chrome headless (exige `npm run preview` rodando)
+npm run testar-celular     # 45 verificações de layout em 390 px e 768 px (exige `npm run preview`, API desligada)
+npm run testar-telas-api   # 36 testes de tela com a API ligada (exige a API e `npm run preview`)
+npm run testar-tudo        # roda tudo num PostgreSQL descartável e mostra um resumo por suíte
 ```
+
+O roteiro completo, com cada critério de aceite das histórias ligado ao teste que o comprova, está em
+[`TESTES.md`](TESTES.md).
 
 O teste de navegador usa o Chrome instalado (caminho padrão do Windows ou variável `CHROME`) e salva as telas em
 `.verificar/telas/`.
@@ -98,7 +104,7 @@ seja contornada.
 | **US11** Multa automática | Devolução + multa corrente exibida enquanto o livro não volta | RN03 (R$ 1,00/dia por exemplar), RN08 |
 | **US12** Justificar e julgar abono | Minha Área → Justificar / Circulação → Multas → Julgar | RN07 (deferir abona, indeferir mantém; parecer e histórico registrados) |
 | **US13** Registrar dano | Circulação → Devolver → danificado / aba Danos | RF15 (relatório + imagens), RN13, RN12 (status “Danificado”), RNF12 |
-| **US14** Notificação de prazo | Notificações (caixa de saída) / Minha Área | RF05 (lembrete 3 dias antes, vencimento, atraso; falha registrada e reenvio) |
+| **US14** Notificação de prazo | Minha Área (sócio) / Notificações (administrador) | RF05 (lembrete 3 dias antes, vencimento e atraso, entregues no sistema, sem e-mail; um aviso por prazo) |
 | **US15** Alerta de pendências no login | Janela exibida após o login | RN11 |
 | **US16** Consulta pública | Consulta Pública (OPAC) | RF06, RN22 (seções A–Z), RN30, RNF07 (índice em memória), RNF11 |
 | **US17** Anexar digitalizações | Repositório Digital → Anexar | RF08 (vínculo com obra ou pasta), RNF13 (compressão) |
@@ -154,19 +160,18 @@ resolvidos assim e podem ser ajustados:
 ## Limites desta entrega
 
 Com a API (`server/`) no ar, login, cadastro, acervo, circulação (US08–US11: empréstimo, renovação, datas e multa por
-atraso), sócios-leitores, repositório digital (US17–US18), mural, mesas de estudo e parcerias ficam no PostgreSQL, com os
-arquivos e imagens em um bucket do Neon; veja `server/README.md`. Notificações e backups continuam no navegador. Sem a API, o front-end
+atraso), sócios-leitores, repositório digital (US17–US18), mural, mesas de estudo, parcerias e avisos de prazo ficam no PostgreSQL, com os
+arquivos e imagens em um bucket do Neon; veja `server/README.md`. Os backups continuam no navegador. Sem a API, o front-end
 funciona sozinho, no modo de demonstração descrito abaixo:
 
 - **Os dados ficam no navegador** (localStorage para registros, IndexedDB para arquivos). Cada computador tem seus próprios
   dados; não há sincronização entre máquinas. O backup em JSON permite levar os dados de um navegador para outro.
 - **O login é local**: as senhas são guardadas como hash SHA-256, e cada ação confere o perfil, mas quem tem acesso às
   ferramentas de desenvolvedor do navegador pode alterar os dados. Segurança real exige back-end.
-- **E-mails (RF05) não saem de fato**: a rotina gera as mensagens e as registra na caixa de saída. O envio precisa de um
-  serviço de e-mail no servidor.
+- **Avisos de prazo (RF05)** aparecem só dentro do sistema, na Minha Área do sócio; não há envio por e-mail.
 - **Backups (RNF05)** ficam no próprio navegador; baixe as cópias e guarde fora da máquina.
 - **RNF07** (20.000 livros em até 5 s): a busca é feita em memória e é instantânea no volume de demonstração; com 20.000
   registros o gargalo passa a ser o limite de ~5 MB do localStorage, outro motivo para o back-end.
 
-Próximo passo natural: levar para a API em `server/` também as notificações, seguindo as ações
+Próximo passo natural: levar para a API em `server/` também os backups, seguindo as ações
 do `store.tsx`, que já estão isoladas e com as mesmas assinaturas `{ ok, mensagem }`.

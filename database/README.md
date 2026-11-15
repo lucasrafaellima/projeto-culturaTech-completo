@@ -149,5 +149,5 @@ senha `admin123` e os cenários de demonstração). Os dois são independentes d
 
 O front-end (React) não acessa o banco diretamente — e não deve: navegador nunca conecta no banco. Quem usa estas tabelas
 é a API em [`server/`](../server/README.md), que cobre login e cadastro, acervo, circulação, sócios, repositório
-digital, mural, mesas de estudo e parcerias. Notificações e backups ainda ficam no navegador; a tabela `notificacao`
-existe aqui, mas ainda não tem rotas na API.
+digital, mural, mesas de estudo, parcerias e avisos de prazo (tabela `notificacao`). Só os backups ainda ficam no
+navegador.

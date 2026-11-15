@@ -81,11 +81,11 @@ conferir("ISBN repetido (com hífen): 409", isbnRepetido.status === 409 && /ISBN
 const isbnInvalido = await post("/livros", { ...obra, isbn: "9781234567890" })
 conferir("ISBN inválido: 400", isbnInvalido.status === 400, isbnInvalido.corpo)
 const secaoInvalida = await post("/livros", { ...obra, isbn: isbnAleatorio(), secao: "AB" })
-conferir("seção inválida: 400 (RN22)", secaoInvalida.status === 400 && /RN22/.test(secaoInvalida.corpo.mensagem), secaoInvalida.corpo)
+conferir("seção inválida: 400 (RN22)", secaoInvalida.status === 400 && /seção deve ser uma letra/.test(secaoInvalida.corpo.mensagem), secaoInvalida.corpo)
 const anoFuturo = await post("/livros", { ...obra, isbn: isbnAleatorio(), ano: new Date().getFullYear() + 1 })
 conferir("ano futuro: 400", anoFuturo.status === 400, anoFuturo.corpo)
 const autorRepetido = await post("/livros", { ...obra, isbn: isbnAleatorio(), autores: ["Jorge Amado", "JORGE AMADO"] })
-conferir("autor repetido: 400 (RN19)", autorRepetido.status === 400 && /RN19/.test(autorRepetido.corpo.mensagem), autorRepetido.corpo)
+conferir("autor repetido: 400 (RN19)", autorRepetido.status === 400 && /mesmo autor/.test(autorRepetido.corpo.mensagem), autorRepetido.corpo)
 
 const editada = await put(`/livros/${livro.id}`, { ...obra, titulo: `Obra Editada ${sufixo}`, autores: ["Jorge Amado"] })
 conferir("editar obra: 200", editada.status === 200 && editada.corpo.livro?.titulo === `Obra Editada ${sufixo}`, editada.corpo)
@@ -136,7 +136,7 @@ const localLonga = await patch(`/exemplares/${exLocal?.id}`, { localizacao: "x".
 conferir("localização com mais de 80 caracteres: 400", localLonga.status === 400, localLonga.corpo)
 await del(`/exemplares/${exLocal?.id}`)
 const semObra = await post("/livros/00000000-0000-0000-0000-000000000000/exemplares", { tombamentos: ["Y-1"] })
-conferir("exemplar sem obra: 404 (RN16)", semObra.status === 404 && /RN16/.test(semObra.corpo.mensagem), semObra.corpo)
+conferir("exemplar sem obra: 404 (RN16)", semObra.status === 404 && /obra não está cadastrada/.test(semObra.corpo.mensagem), semObra.corpo)
 
 // ---------- status ----------
 const ocioso = await patch(`/exemplares/${ex1.id}`, { status: "ocioso" })
@@ -148,17 +148,36 @@ conferir("status inexistente: 400", statusInvalido.status === 400, statusInvalid
 const emprestado = await patch("/exemplares/e0000000-0000-0000-0000-000000000001", { status: "em_restauro" })
 conferir("exemplar com empréstimo ativo (dados de exemplo): 409", emprestado.status === 409 && /emprestado/.test(emprestado.corpo.mensagem), emprestado.corpo)
 
+// ---------- consulta pública (US17 c3 / US04 c2 / RN30) ----------
+await patch(`/exemplares/${ex2.id}`, { status: "em_restauro" })
+await patch(`/exemplares/${ex3.id}`, { status: "extraviado" })
+const statusPublico = async () => {
+  const r = await chamar("GET", "/acervo/publico")
+  const de = (id: string) => (r.corpo.exemplares as { id: string; status: string }[]).find((e) => e.id === id)?.status
+  return { http: r.status, ex1: de(ex1.id), ex2: de(ex2.id), ex3: de(ex3.id) }
+}
+const mascarado = await statusPublico()
+conferir(
+  "consulta pública sem login mostra ocioso, em restauro e extraviado como indisponível",
+  mascarado.http === 200 && mascarado.ex1 === "indisponivel" && mascarado.ex2 === "indisponivel" && mascarado.ex3 === "indisponivel",
+  mascarado,
+)
+await patch(`/exemplares/${ex2.id}`, { status: "disponivel" })
+await patch(`/exemplares/${ex3.id}`, { status: "disponivel" })
+conferir("exemplar disponível aparece como disponível na consulta pública", (await statusPublico()).ex2 === "disponivel")
+
 // ---------- desbaste ----------
 const desbDisponivel = await post(`/exemplares/${ex2.id}/desbaste`, { relatorio: "Relatório suficiente para o teste." })
-conferir("desbaste de exemplar disponível: 409 (RN31)", desbDisponivel.status === 409 && /RN31/.test(desbDisponivel.corpo.mensagem), desbDisponivel.corpo)
+conferir("desbaste de exemplar disponível: 409 (RN31)", desbDisponivel.status === 409 && /ociosos ou danificados/.test(desbDisponivel.corpo.mensagem), desbDisponivel.corpo)
 const relatorioCurto = await post(`/exemplares/${ex1.id}/desbaste`, { relatorio: "curto" })
-conferir("relatório curto: 400 (RN24)", relatorioCurto.status === 400 && /RN24/.test(relatorioCurto.corpo.mensagem), relatorioCurto.corpo)
+conferir("relatório curto: 400 (RN24)", relatorioCurto.status === 400 && /Anexe o relatório/.test(relatorioCurto.corpo.mensagem), relatorioCurto.corpo)
 const relatorio = "Exemplar sem empréstimos há mais de cinco anos; teste automático."
 const desbastado = await post(`/exemplares/${ex1.id}/desbaste`, { relatorio })
 conferir("desbaste válido: 201", desbastado.status === 201 && desbastado.corpo.desbaste?.statusAnterior === "ocioso", desbastado.corpo)
 conferir("US05: o desbaste devolve o administrador que o registrou", typeof desbastado.corpo.desbaste?.admin === "string" && desbastado.corpo.desbaste.admin.length > 0, desbastado.corpo)
 const deNovo = await post(`/exemplares/${ex1.id}/desbaste`, { relatorio })
 conferir("desbastar de novo: 404", deNovo.status === 404, deNovo.corpo)
+conferir("exemplar desbastado sai da consulta pública", (await statusPublico()).ex1 === undefined)
 const editarBaixado = await patch(`/exemplares/${ex1.id}`, { status: "disponivel" })
 conferir("editar exemplar baixado: 409", editarBaixado.status === 409, editarBaixado.corpo)
 const relatorioGeral = await get("/desbastes")

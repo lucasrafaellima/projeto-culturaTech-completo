@@ -258,7 +258,7 @@ function DetalheObra({
         {restrito && (
           <Aviso tipo="erro">
             <Lock className="mr-1 inline h-3.5 w-3.5" />
-            {labelCategoria[livro.categoria]}: obra de consulta local, não pode ser emprestada (RN04).
+            {labelCategoria[livro.categoria]}: obra de consulta local, não pode ser emprestada.
             {digitais.length > 0 && " A versão digital pode ser lida online abaixo."}
           </Aviso>
         )}
@@ -280,7 +280,7 @@ function DetalheObra({
 
         {digitais.length > 0 && (
           <div>
-            <p className="mb-2 text-sm font-medium">Versão digital (RF17)</p>
+            <p className="mb-2 text-sm font-medium">Versão digital</p>
             <div className="flex flex-wrap gap-2">
               {digitais.map((a) => (
                 <Button key={a.id} variante="outline" tamanho="sm" onClick={() => navegar("repositorio", a.id)}>

@@ -18,6 +18,7 @@ import type {
   MesaEstudo,
   Movimentacao,
   Multa,
+  Notificacao,
   OcorrenciaDano,
   PastaHistorica,
   Publicacao,
@@ -221,6 +222,16 @@ export interface CirculacaoApi {
 }
 
 export const circulacaoDaApi = (token: string) => comToken<CirculacaoApi>(token, "GET", "/circulacao")
+
+// ---------- avisos de prazo (RF05 / US15) ----------
+
+export const notificacoesDaApi = (token: string) => comToken<{ notificacoes: Notificacao[] }>(token, "GET", "/notificacoes")
+
+export const minhasNotificacoesDaApi = (token: string) =>
+  comToken<{ notificacoes: Notificacao[] }>(token, "GET", "/eu/notificacoes")
+
+export const executarRotinaDeAvisosNaApi = (token: string) =>
+  comToken<{ mensagem: string; geradas: number; notificacoes: Notificacao[] }>(token, "POST", "/notificacoes/rotina", {})
 
 export const minhaCirculacaoDaApi = (token: string) =>
   comToken<{ socio?: SocioLeitor; emprestimos: Emprestimo[]; multas: Multa[]; reservas: Reserva[] }>(

@@ -6,7 +6,7 @@
 //    alerta ao entrar (RN11)
 //  - João Pedro: empréstimo vencendo em 2 dias (lembrete RF05) e 1 reserva (RF14)
 //  - Ana Beatriz: multa com justificativa aguardando julgamento (RN07)
-//  - Pedro Henrique: cadastro migrado sem e-mail -> falha de notificação (RF05)
+//  - Pedro Henrique: cadastro migrado sem e-mail; livro vence hoje -> aviso de vencimento na Minha Área (RF05)
 //  - Mesas: todas ocupadas hoje de manhã (uso já confirmado), com fila de espera (RF11)
 //  - Espaço Kids: Sofia, filha de João Pedro, agendada para amanhã à tarde (US29)
 // ============================================================

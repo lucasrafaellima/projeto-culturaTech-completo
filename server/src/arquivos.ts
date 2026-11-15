@@ -75,7 +75,7 @@ rotasArquivos.post(
     if (bytes.length === 0) throw new ErroRegra(400, "Envie o conteúdo do arquivo.")
 
     const mime = String(req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase()
-    if (!MIMES.includes(mime)) throw new ErroRegra(400, "Formato não suportado. Envie PDF, JPG, PNG ou WEBP (RNF12).")
+    if (!MIMES.includes(mime)) throw new ErroRegra(400, "Formato não suportado. Envie PDF, JPG, PNG ou WEBP.")
     if (mime.startsWith("image/") && bytes.length > LIMITE_IMAGEM) {
       throw new ErroRegra(413, `Imagem grande demais: o limite é ${mb(LIMITE_IMAGEM)}.`)
     }

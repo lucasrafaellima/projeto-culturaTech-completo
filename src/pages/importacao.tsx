@@ -34,7 +34,7 @@ export function ImportacaoPage() {
     setNomeArquivo(arquivo.name)
     // RN21: somente CSV
     if (!csvValido(arquivo)) {
-      notificar("Arquivo recusado: a importação aceita somente o formato CSV (RN21).", false)
+      notificar("Arquivo recusado: a importação aceita somente o formato CSV.", false)
       limpar()
       return
     }
@@ -52,7 +52,7 @@ export function ImportacaoPage() {
       const ms = Math.round(performance.now() - inicio)
       notificar(
         r.erros.length
-          ? `${r.erros.length} linha(s) com erro. Corrija o arquivo: nada será importado (RNF03).`
+          ? `${r.erros.length} linha(s) com erro. Corrija o arquivo: nada será importado.`
           : `${r.linhas.length} registro(s) válidos, verificados em ${ms} ms.`,
         r.erros.length === 0,
       )
@@ -82,7 +82,7 @@ export function ImportacaoPage() {
       <Aviso tipo="info">
         Migre as planilhas atuais para o sistema. Salve a planilha do Excel como <strong>CSV (separado por ponto e vírgula)</strong>{" "}
         e envie aqui. O arquivo é validado por completo antes de importar: se qualquer linha tiver erro, nada é gravado e os
-        erros são listados por linha (RN21, RNF03).
+        erros são listados por linha.
       </Aviso>
 
       <Card>

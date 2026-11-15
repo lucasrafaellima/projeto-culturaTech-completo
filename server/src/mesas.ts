@@ -25,7 +25,7 @@ const IDADE_MINIMA_SOCIO = 12
 const IDADE_MINIMA_RESPONSAVEL_KIDS = 18
 const TOLERANCIA_USO_MINUTOS = 15
 const AVISO_TOLERANCIA = `Apresente-se no balcão em até ${TOLERANCIA_USO_MINUTOS} minutos do início do turno; sem a confirmação de uso, a vaga é liberada.`
-const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil (RNF02)."
+const NEGADO = "Acesso negado: esta operação não é permitida para o seu perfil."
 
 // O banco roda em UTC; os turnos seguem o relógio de Arapiraca (FUSO_HORARIO)
 const FUSO = config.fusoHorario
@@ -176,8 +176,8 @@ async function conferirSocio(c: pg.PoolClient, socioId: string, kids: boolean, d
     throw new ErroRegra(
       409,
       kids
-        ? "Somente sócios-leitores ativos podem agendar o Espaço Kids (RN06)."
-        : "Somente sócios-leitores ativos podem agendar mesas (RN06).",
+        ? "Somente sócios-leitores ativos podem agendar o Espaço Kids."
+        : "Somente sócios-leitores ativos podem agendar mesas.",
     )
   }
   if (!kids) return
@@ -386,8 +386,8 @@ rotasMesas.post("/agendamentos", exigirLogin, async (req, res) => {
       throw new ErroRegra(
         409,
         cr
-          ? `${primeiroNome(cr.nome)} já tem agendamento no Espaço Kids neste dia (${LABEL_TURNO[existente.turno]}). O limite é 1 turno por dia (RN05).`
-          : `Já existe um agendamento neste dia (${LABEL_TURNO[existente.turno]}). O limite é 1 turno por dia (RN05).`,
+          ? `${primeiroNome(cr.nome)} já tem agendamento no Espaço Kids neste dia (${LABEL_TURNO[existente.turno]}). O limite é 1 turno por dia.`
+          : `Já existe um agendamento neste dia (${LABEL_TURNO[existente.turno]}). O limite é 1 turno por dia.`,
       )
     }
     if (mesaId) {
@@ -404,12 +404,12 @@ rotasMesas.post("/agendamentos", exigirLogin, async (req, res) => {
     if (livres.length === 0) {
       throw new ErroRegra(
         409,
-        cr ? "Todas as mesas do Espaço Kids estão ocupadas neste turno (RN09)." : "Todas as mesas estão ocupadas neste turno (RN09).",
+        cr ? "Todas as mesas do Espaço Kids estão ocupadas neste turno." : "Todas as mesas estão ocupadas neste turno.",
         { ofereceFila: true },
       )
     }
     const alvo = mesaId ? livres.find((m) => m.id === mesaId) : livres[0]
-    if (!alvo) throw new ErroRegra(409, "A mesa escolhida já está ocupada neste turno (RN09). Escolha outra.")
+    if (!alvo) throw new ErroRegra(409, "A mesa escolhida já está ocupada neste turno. Escolha outra.")
     await c.query(
       `INSERT INTO agendamento (mesa_id, socio_id, data, turno, crianca_nome, crianca_cpf, crianca_nascimento)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -527,7 +527,7 @@ rotasMesas.post("/fila", exigirLogin, async (req, res) => {
     if (await agendamentoNoDia(c, socioId, pedido.data, cr)) {
       throw new ErroRegra(
         409,
-        cr ? `${primeiroNome(cr.nome)} já tem agendamento no Espaço Kids neste dia (RN05).` : "Você já tem um agendamento neste dia (RN05).",
+        cr ? `${primeiroNome(cr.nome)} já tem agendamento no Espaço Kids neste dia.` : "Você já tem um agendamento neste dia.",
       )
     }
     if ((await mesasLivres(c, pedido.data, pedido.turno, espaco)).length > 0) {
@@ -548,7 +548,7 @@ rotasMesas.post("/fila", exigirLogin, async (req, res) => {
         [socioId, pedido.data],
       )
       if (rows.some((f) => f.turno === pedido.turno)) throw new ErroRegra(409, "Você já está na fila deste turno.")
-      if (rows.length > 0) throw new ErroRegra(409, "Você já está na fila de outro turno neste dia (RN05).")
+      if (rows.length > 0) throw new ErroRegra(409, "Você já está na fila de outro turno neste dia.")
     }
     await c.query(
       `INSERT INTO fila_espera (socio_id, data, turno, crianca_nome, crianca_cpf, crianca_nascimento)

@@ -41,7 +41,7 @@ export function BackupsPage() {
     <div className="space-y-5">
       <Aviso tipo="info">
         Um backup completo do acervo, dos sócios-leitores e da circulação é gerado automaticamente todos os dias ao abrir o
-        sistema, e os 7 mais recentes ficam guardados (RNF05). Baixe uma cópia periodicamente e guarde fora deste computador.
+        sistema, e os 7 mais recentes ficam guardados. Baixe uma cópia periodicamente e guarde fora deste computador.
         Os arquivos digitalizados (PDFs e imagens) ficam no armazenamento do navegador e não entram no arquivo de backup.
       </Aviso>
 

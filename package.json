@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "testar-navegador": "node scripts/testar-navegador.mjs",
+    "testar-celular": "node scripts/testar-celular.mjs",
+    "testar-telas-api": "node scripts/testar-telas-api.mjs",
+    "testar-tudo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/testar-tudo.ps1",
     "verificar":"rolldown scripts/verificar-regras.ts --format esm --platform node --file .verificar/regras.mjs --logLevel silent && node .verificar/regras.mjs"
   },
   "dependencies": {

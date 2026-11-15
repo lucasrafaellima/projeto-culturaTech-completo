@@ -187,7 +187,7 @@ export function CadastroPage() {
               className="mt-0.5 h-4 w-4 accent-[var(--color-primary)]"
             />
             <span className="text-pretty">
-              Autorizo o tratamento dos meus dados pessoais pela biblioteca, conforme a LGPD (RNF06). Os dados ficam
+              Autorizo o tratamento dos meus dados pessoais pela biblioteca, conforme a LGPD. Os dados ficam
               visíveis apenas para a administração.
             </span>
           </label>

@@ -61,7 +61,7 @@ export function validarAutores(nomes: string[]): string | null {
   if (validos.some((n) => n.length < 3)) return "Cada autor deve ter o nome completo (mínimo 3 caracteres)."
   const chaves = validos.map(normalizar)
   if (new Set(chaves).size !== chaves.length) {
-    return "O mesmo autor foi informado mais de uma vez para a obra (RN19)."
+    return "O mesmo autor foi informado mais de uma vez para a obra."
   }
   return null
 }

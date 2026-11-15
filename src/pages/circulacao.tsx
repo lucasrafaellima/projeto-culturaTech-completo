@@ -284,7 +284,7 @@ export function CirculacaoPage() {
         <Card>
           <CardHeader
             titulo="Multas"
-            descricao="Justificativas enviadas pelos sócios-leitores podem ser deferidas (multa abonada) ou indeferidas (dívida mantida) (RN07)."
+            descricao="Justificativas enviadas pelos sócios-leitores podem ser deferidas (multa abonada) ou indeferidas (dívida mantida)."
             icone={<CircleDollarSign className="h-5 w-5" />}
           />
           <div className="divide-y divide-border">
@@ -373,7 +373,7 @@ export function CirculacaoPage() {
         <Card>
           <CardHeader
             titulo="Ocorrências de dano"
-            descricao="Relatórios e imagens comprobatórias registrados na devolução (RF15)."
+            descricao="Relatórios e imagens comprobatórias registrados na devolução."
             icone={<FileWarning className="h-5 w-5" />}
           />
           <div className="divide-y divide-border">
@@ -597,7 +597,7 @@ export function CirculacaoPage() {
 /** Motivo pelo qual um empréstimo não pode ser renovado, ou null se pode (RN17 / atraso). */
 function bloqueioRenovacao(emp: Emprestimo, hoje: string): string | null {
   if (emp.status !== "ativo") return "Somente empréstimos em andamento podem ser renovados."
-  if (emp.renovacoes >= MAX_RENOVACOES) return `Limite de ${MAX_RENOVACOES} renovações atingido (RN17).`
+  if (emp.renovacoes >= MAX_RENOVACOES) return `Limite de ${MAX_RENOVACOES} renovações atingido.`
   if (diasAtraso(emp.dataPrevista, hoje) > 0) return "Em atraso: registre a devolução para calcular a multa."
   return null
 }
@@ -690,8 +690,8 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
   function motivoIndisponivel(exId: string): string | null {
     const ex = exemplares.find((x) => x.id === exId)!
     const l = getLivro(ex.livroId)
-    if (l && !categoriaEmprestavel(l.categoria)) return "consulta local (RN04)"
-    if (emprestimoAtivoDoExemplar(store, exId)) return "já emprestado (RN14)"
+    if (l && !categoriaEmprestavel(l.categoria)) return "consulta local"
+    if (emprestimoAtivoDoExemplar(store, exId)) return "já emprestado"
     const r = reservaAtivaDoExemplar(store, exId)
     if (r && r.socioId !== socioId) return "reservado para outro sócio"
     if (!r && ex.status !== "disponivel") return "indisponível"
@@ -710,11 +710,11 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
   const impedimento = !socio
     ? null
     : !socio.ativo
-      ? "Sócio-leitor inativo: somente sócios ativos podem fazer empréstimos (RN06)."
+      ? "Sócio-leitor inativo: somente sócios ativos podem fazer empréstimos."
       : bloqueio
-        ? `O sócio-leitor possui ${bloqueio}. Novos empréstimos estão bloqueados (RN08).`
+        ? `O sócio-leitor possui ${bloqueio}. Novos empréstimos estão bloqueados.`
         : noLimite
-          ? `Limite de ${MAX_EXEMPLARES_SIMULTANEOS} exemplares simultâneos atingido, somando empréstimos e reservas (RN01).`
+          ? `Limite de ${MAX_EXEMPLARES_SIMULTANEOS} exemplares simultâneos atingido, somando empréstimos e reservas.`
           : null
   const podeConfirmar = !!socio && !!exemplar && !impedimento
 
@@ -857,8 +857,8 @@ function NovoEmprestimo({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
             <p className="font-medium">{formatDate(addDays(hoje, PRAZO_EMPRESTIMO_DIAS))}</p>
           </div>
           <p className="col-span-2 text-xs text-muted-foreground">
-            {PRAZO_EMPRESTIMO_DIAS} dias corridos (RN02), renovável até {MAX_RENOVACOES} vezes. Atraso: {formatCurrency(MULTA_POR_DIA)}{" "}
-            por dia (RN03).
+            {PRAZO_EMPRESTIMO_DIAS} dias corridos, renovável até {MAX_RENOVACOES} vezes. Atraso: {formatCurrency(MULTA_POR_DIA)}{" "}
+            por dia.
             {exemplar && ` Exemplar ${exemplar.tombamento}: ${getLivro(exemplar.livroId)?.titulo ?? ""}.`}
           </p>
         </div>
@@ -935,7 +935,7 @@ function Devolucao({
         {dias > 0 ? (
           <Aviso tipo="erro">
             {dias} dia(s) de atraso × {formatCurrency(MULTA_POR_DIA)}: será gerada multa de{" "}
-            <strong>{formatCurrency(multaAtraso)}</strong> para este exemplar (RN03).
+            <strong>{formatCurrency(multaAtraso)}</strong> para este exemplar.
           </Aviso>
         ) : (
           <Aviso tipo="sucesso">Devolução dentro do prazo: sem multa por atraso.</Aviso>
@@ -953,7 +953,7 @@ function Devolucao({
 
         {comDano && (
           <div className="space-y-3 rounded-lg border border-danger/30 bg-danger/5 p-3">
-            <Campo rotulo="Relatório do dano (RF15)" dica={`Mínimo de ${MIN_JUSTIFICATIVA} caracteres.`}>
+            <Campo rotulo="Relatório do dano" dica={`Mínimo de ${MIN_JUSTIFICATIVA} caracteres.`}>
               {(id) => (
                 <Textarea
                   id={id}
@@ -968,7 +968,7 @@ function Devolucao({
               <p className="mb-1.5 text-sm font-medium">Imagens comprobatórias</p>
               <SeletorImagens ids={imagens} onChange={setImagens} destino="danos" />
             </div>
-            <Campo rotulo="Valor da multa pelo dano (R$)" dica="O exemplar passa ao status “Danificado” (RN12 / RN13).">
+            <Campo rotulo="Valor da multa pelo dano (R$)" dica="O exemplar passa ao status “Danificado”.">
               {(id) => <Input id={id} type="number" min="0" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} className="sm:w-40" />}
             </Campo>
           </div>

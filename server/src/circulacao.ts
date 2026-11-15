@@ -247,17 +247,17 @@ rotasCirculacao.post("/emprestimos", exigirAdmin, async (req, res) => {
   const corpo = corpoDe(req)
   const socioId = texto(corpo.socioId)
   const exemplarId = texto(corpo.exemplarId)
-  if (!UUID.test(socioId)) throw new ErroRegra(400, "Somente sócios-leitores ativos podem fazer empréstimos (RN06).")
+  if (!UUID.test(socioId)) throw new ErroRegra(400, "Somente sócios-leitores ativos podem fazer empréstimos.")
   if (!UUID.test(exemplarId)) throw new ErroRegra(404, "Exemplar não encontrado no acervo.")
 
   const emprestimo = await emTransacao(async (c) => {
     await expirarReservas(c)
     // RN06: somente sócios-leitores ativos
     const s = await c.query("SELECT 1 FROM socio_leitor WHERE id = $1 AND ativo AND NOT anonimizado FOR UPDATE", [socioId])
-    if (!s.rowCount) throw new ErroRegra(409, "Somente sócios-leitores ativos podem fazer empréstimos (RN06).")
+    if (!s.rowCount) throw new ErroRegra(409, "Somente sócios-leitores ativos podem fazer empréstimos.")
     // RN08: dívidas pendentes bloqueiam
     const motivo = await motivoBloqueio(c, socioId)
-    if (motivo) throw new ErroRegra(409, `Empréstimo bloqueado: o sócio-leitor possui ${motivo} (RN08).`)
+    if (motivo) throw new ErroRegra(409, `Empréstimo bloqueado: o sócio-leitor possui ${motivo}.`)
 
     const ex = (
       await c.query<{ categoria: string }>(
@@ -269,11 +269,11 @@ rotasCirculacao.post("/emprestimos", exigirAdmin, async (req, res) => {
     if (!ex) throw new ErroRegra(404, "Exemplar não encontrado no acervo.")
     // RN04: obras restritas
     if (CATEGORIAS_RESTRITAS.includes(ex.categoria)) {
-      throw new ErroRegra(409, `${labelCategoria[ex.categoria]}: obra de consulta local, não pode ser emprestada (RN04).`)
+      throw new ErroRegra(409, `${labelCategoria[ex.categoria]}: obra de consulta local, não pode ser emprestada.`)
     }
     // RN14: exemplar sem empréstimo ativo
     const ativo = await c.query("SELECT 1 FROM emprestimo WHERE exemplar_id = $1 AND status = 'ativo'", [exemplarId])
-    if (ativo.rowCount) throw new ErroRegra(409, "Este exemplar já possui um empréstimo ativo (RN14).")
+    if (ativo.rowCount) throw new ErroRegra(409, "Este exemplar já possui um empréstimo ativo.")
 
     // RN01, disponibilidade e reserva de outro sócio: trigger fn_validar_emprestimo
     const { rows } = await c.query<{ id: string }>(
@@ -296,7 +296,7 @@ rotasCirculacao.post("/emprestimos/:id/renovar", exigirAdmin, async (req, res) =
   const id = idDe(req, "Somente empréstimos em andamento podem ser renovados.")
   const r = await emTransacao(async (c) => {
     const emp = await emprestimoAtivo(c, id, "Somente empréstimos em andamento podem ser renovados.")
-    if (emp.renovacoes >= MAX_RENOVACOES) throw new ErroRegra(409, `Limite de ${MAX_RENOVACOES} renovações atingido (RN17).`)
+    if (emp.renovacoes >= MAX_RENOVACOES) throw new ErroRegra(409, `Limite de ${MAX_RENOVACOES} renovações atingido.`)
     if (emp.atraso > 0) {
       throw new ErroRegra(409, "Empréstimo em atraso não pode ser renovado. Registre a devolução para calcular a multa.")
     }
@@ -362,9 +362,9 @@ rotasCirculacao.post("/emprestimos/:id/devolver", exigirAdmin, async (req, res) 
     const valor = typeof d.valor === "number" ? Math.round(d.valor * 100) / 100 : NaN
     const imagemIds = (Array.isArray(d.imagemIds) ? d.imagemIds : []).map(texto)
     if (relatorio.length < MIN_JUSTIFICATIVA) {
-      throw new ErroRegra(400, `Descreva o dano no relatório (mínimo ${MIN_JUSTIFICATIVA} caracteres) (RF15).`)
+      throw new ErroRegra(400, `Descreva o dano no relatório (mínimo ${MIN_JUSTIFICATIVA} caracteres).`)
     }
-    if (!(valor > 0) || valor > 99_999_999) throw new ErroRegra(400, "Informe o valor da multa pelo dano (RN13).")
+    if (!(valor > 0) || valor > 99_999_999) throw new ErroRegra(400, "Informe o valor da multa pelo dano.")
     if (imagemIds.length > MAX_IMAGENS_DANO) throw new ErroRegra(400, `Anexe no máximo ${MAX_IMAGENS_DANO} imagens.`)
     if (imagemIds.some((i) => !UUID.test(i)) || new Set(imagemIds).size !== imagemIds.length) {
       throw new ErroRegra(400, "Imagem do dano inválida. Envie as imagens novamente.")
@@ -464,7 +464,7 @@ rotasCirculacao.post("/multas/:id/justificativa", exigirLogin, async (req, res) 
     ).rows[0]
     if (!m) throw new ErroRegra(404, "Multa não encontrada.")
     if (usuario.perfil !== "admin" && usuario.id !== m.socio_id) {
-      throw new ErroRegra(403, "Acesso negado: esta operação não é permitida para o seu perfil (RNF02).")
+      throw new ErroRegra(403, "Acesso negado: esta operação não é permitida para o seu perfil.")
     }
     if (m.status !== "pendente") throw new ErroRegra(409, "Só é possível justificar uma multa pendente.")
     if (justificativa.length < MIN_JUSTIFICATIVA) {
@@ -541,14 +541,14 @@ rotasCirculacao.post("/reservas", exigirLogin, async (req, res) => {
   const reserva = await emTransacao(async (c) => {
     await expirarReservas(c)
     const s = await c.query("SELECT 1 FROM socio_leitor WHERE id = $1 AND ativo AND NOT anonimizado FOR UPDATE", [socioId])
-    if (!s.rowCount) throw new ErroRegra(409, "Somente sócios-leitores ativos podem reservar (RN06).")
+    if (!s.rowCount) throw new ErroRegra(409, "Somente sócios-leitores ativos podem reservar.")
     const livro = (await c.query<{ categoria: string }>("SELECT categoria FROM livro WHERE id = $1", [livroId])).rows[0]
     if (!livro) throw new ErroRegra(404, "Obra não encontrada.")
     if (CATEGORIAS_RESTRITAS.includes(livro.categoria)) {
-      throw new ErroRegra(409, "Obra de consulta local: não pode ser reservada (RN04).")
+      throw new ErroRegra(409, "Obra de consulta local: não pode ser reservada.")
     }
     const motivo = await motivoBloqueio(c, socioId)
-    if (motivo) throw new ErroRegra(409, `Reserva bloqueada: há ${motivo} (RN08).`)
+    if (motivo) throw new ErroRegra(409, `Reserva bloqueada: há ${motivo}.`)
     const mesma = await c.query(
       `SELECT 1 FROM reserva r JOIN exemplar e ON e.id = r.exemplar_id
         WHERE r.socio_id = $1 AND r.status = 'ativa' AND e.livro_id = $2`,
@@ -561,7 +561,7 @@ rotasCirculacao.post("/reservas", exigirLogin, async (req, res) => {
       [socioId],
     )
     if (ocupados.rows[0].n >= MAX_EXEMPLARES_SIMULTANEOS) {
-      throw new ErroRegra(409, `Empréstimos e reservas somados não podem passar de ${MAX_EXEMPLARES_SIMULTANEOS} (RN01).`)
+      throw new ErroRegra(409, `Empréstimos e reservas somados não podem passar de ${MAX_EXEMPLARES_SIMULTANEOS}.`)
     }
     const ex = (
       await c.query<{ id: string }>(
@@ -597,7 +597,7 @@ rotasCirculacao.post("/reservas/:id/cancelar", exigirLogin, async (req, res) => 
     ).rows[0]
     if (!r) throw new ErroRegra(409, "Reserva não está ativa.")
     if (usuario.perfil !== "admin" && usuario.id !== r.socio_id) {
-      throw new ErroRegra(403, "Acesso negado: esta operação não é permitida para o seu perfil (RNF02).")
+      throw new ErroRegra(403, "Acesso negado: esta operação não é permitida para o seu perfil.")
     }
     await c.query("UPDATE reserva SET status = 'cancelada' WHERE id = $1", [id])
     return umaReserva(c, id)

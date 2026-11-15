@@ -143,7 +143,7 @@ export function AcompanhamentoPage() {
   return (
     <div className="space-y-5">
       <Card className="p-5">
-        <div className="grid gap-3 sm:grid-cols-[auto_auto_1fr_auto] sm:items-end">
+        <div className="grid gap-3 sm:grid-cols-2 sm:items-end lg:grid-cols-[auto_auto_1fr_auto]">
           <Campo rotulo="Data">
             {(id) => (
               <Input
@@ -153,13 +153,13 @@ export function AcompanhamentoPage() {
                 max={addDays(hoje, 30)}
                 value={data}
                 onChange={(e) => setData(e.target.value || hoje)}
-                className="sm:w-44"
+                className="lg:w-44"
               />
             )}
           </Campo>
           <Campo rotulo="Turno">
             {(id) => (
-              <Select id={id} value={turno} onChange={(e) => setTurno(e.target.value as Turno)} className="sm:w-48">
+              <Select id={id} value={turno} onChange={(e) => setTurno(e.target.value as Turno)} className="lg:w-48">
                 {TURNOS.map((t) => (
                   <option key={t} value={t}>
                     {labelTurno[t]} ({horarioTurno[t]})
@@ -170,7 +170,7 @@ export function AcompanhamentoPage() {
           </Campo>
           <Campo rotulo="Espaço">
             {(id) => (
-              <Select id={id} value={espaco} onChange={(e) => setEspaco(e.target.value as FiltroEspaco)} className="sm:w-56">
+              <Select id={id} value={espaco} onChange={(e) => setEspaco(e.target.value as FiltroEspaco)} className="lg:w-56">
                 <option value="todos">Todos os espaços</option>
                 <option value="estudo">{labelEspaco.estudo}</option>
                 <option value="kids">{labelEspaco.kids}</option>

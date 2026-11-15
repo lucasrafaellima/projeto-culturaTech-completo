@@ -330,7 +330,7 @@ export function AcervoPage() {
         <Card>
           <CardHeader
             titulo="Exemplares aptos a desbaste"
-            descricao="Somente exemplares ociosos ou danificados podem ser desbastados (RN31), mediante relatório (RN24)."
+            descricao="Somente exemplares ociosos ou danificados podem ser desbastados, mediante relatório."
             icone={<Scissors className="h-5 w-5" />}
           />
           <div className="divide-y divide-border">
@@ -400,7 +400,7 @@ export function AcervoPage() {
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Obra: <strong className="text-foreground">{novosExemplares.livro.titulo}</strong>. Cada exemplar recebe um
-              código de identificação único (UUID) gerado pelo sistema (RN20).
+              código de identificação único (UUID) gerado pelo sistema.
             </p>
             <Campo rotulo="Códigos de tombamento" dica="Um por linha. Ex.: BMA-2050">
               {(id) => (
@@ -475,7 +475,7 @@ export function AcervoPage() {
             </Campo>
             <Campo
               rotulo="Status"
-              dica="Em restauro, extraviado e ocioso aparecem como “Indisponível” para visitantes e sócios-leitores (RN30)."
+              dica="Em restauro, extraviado e ocioso aparecem como “Indisponível” para visitantes e sócios-leitores."
             >
               {(id) => (
                 <Select
@@ -529,7 +529,7 @@ export function AcervoPage() {
             </Aviso>
             <Campo
               rotulo="Relatório justificando a decisão (obrigatório)"
-              dica={`${desbastando.relatorio.trim().length}/${MIN_JUSTIFICATIVA} caracteres mínimos (RN24)`}
+              dica={`${desbastando.relatorio.trim().length}/${MIN_JUSTIFICATIVA} caracteres mínimos`}
             >
               {(id) => (
                 <Textarea
@@ -652,7 +652,7 @@ function FormLivro({
         </Button>
         {form.autores.some((n) => n.trim()) && (
           <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs">
-            <p className="font-medium">Catalogação (RN19)</p>
+            <p className="font-medium">Catalogação</p>
             <p className="mt-1">
               Entrada principal: <strong>{cat.principal ?? form.titulo.toUpperCase() ?? "título"}</strong>
             </p>
@@ -671,7 +671,7 @@ function FormLivro({
         <Campo rotulo="ISBN" dica="ISBN-10 ou ISBN-13, com ou sem hífens.">
           {(id) => <Input id={id} value={form.isbn} onChange={(e) => set("isbn", e.target.value)} placeholder="978-85-..." />}
         </Campo>
-        <Campo rotulo="Categoria" dica={["cordel", "raro", "exemplar_unico"].includes(form.categoria) ? "Obra de consulta local: não pode ser emprestada (RN04)." : undefined}>
+        <Campo rotulo="Categoria" dica={["cordel", "raro", "exemplar_unico"].includes(form.categoria) ? "Obra de consulta local: não pode ser emprestada." : undefined}>
           {(id) => (
             <Select id={id} value={form.categoria} onChange={(e) => set("categoria", e.target.value as DadosLivro["categoria"])}>
               {TODAS_CATEGORIAS.map((c) => (

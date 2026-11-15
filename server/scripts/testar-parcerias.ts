@@ -138,7 +138,7 @@ const livro2 = obra2.corpo.livro.id as string
 // ---------- aquisição (US24) ----------
 const t = (n: number) => `P${sufixo}-${n}`
 const aqSem = await post("/movimentacoes/aquisicao", { receptorId: SEM_CADASTRO, livroId, tombamentos: [t(1)] })
-conferir("aquisição sem origem cadastrada: 409 (RN25)", aqSem.status === 409 && aqSem.corpo.mensagem.includes("RN25"), aqSem.corpo)
+conferir("aquisição sem origem cadastrada: 409 (RN25)", aqSem.status === 409 && aqSem.corpo.mensagem.includes("precisa estar cadastrad"), aqSem.corpo)
 const aq = await post("/movimentacoes/aquisicao", {
   receptorId: instId,
   livroId,
@@ -163,7 +163,7 @@ conferir("aquisição de obra inexistente: 404", (await post("/movimentacoes/aqu
 
 // ---------- doação (US24) ----------
 const semReceptor = await post("/movimentacoes/doacao", { receptorId: SEM_CADASTRO, exemplarIds: [ex[0].id] })
-conferir("doação sem receptor cadastrado: 409 (RN25)", semReceptor.status === 409 && semReceptor.corpo.mensagem.includes("RN25"), semReceptor.corpo)
+conferir("doação sem receptor cadastrado: 409 (RN25)", semReceptor.status === 409 && semReceptor.corpo.mensagem.includes("precisa estar cadastrad"), semReceptor.corpo)
 conferir("doação sem exemplar: 400", (await post("/movimentacoes/doacao", { receptorId: instId, exemplarIds: [] })).status === 400)
 const duasObras = await post("/movimentacoes/doacao", { receptorId: instId, exemplarIds: [ex[0].id, exOutraObra] })
 conferir("doação de duas obras: 400", duasObras.status === 400 && duasObras.corpo.mensagem.includes("uma doação por obra"), duasObras.corpo)
@@ -173,11 +173,11 @@ const indisponivel = await post("/movimentacoes/doacao", { receptorId: instId, e
 conferir("exemplar indisponível: 409", indisponivel.status === 409 && indisponivel.corpo.mensagem.includes("não pode ser doado"), indisponivel.corpo)
 
 const doisDeUmaVez = await post("/movimentacoes/doacao", { receptorId: pessoaId, exemplarIds: [ex[0].id, ex[1].id] })
-conferir("pessoa física com dois de uma vez: 409 (RN26)", doisDeUmaVez.status === 409 && doisDeUmaVez.corpo.mensagem.includes("RN26"), doisDeUmaVez.corpo)
+conferir("pessoa física com dois de uma vez: 409 (RN26)", doisDeUmaVez.status === 409 && doisDeUmaVez.corpo.mensagem.includes("Pessoa física"), doisDeUmaVez.corpo)
 const primeiraPF = await post("/movimentacoes/doacao", { receptorId: pessoaId, exemplarIds: [ex[0].id] })
 conferir("pessoa física recebe 1 livro", primeiraPF.status === 201 && primeiraPF.corpo.movimentacao.tombamentos[0] === ex[0].tombamento, primeiraPF.corpo)
 const segundaPF = await post("/movimentacoes/doacao", { receptorId: pessoaId, exemplarIds: [ex[1].id] })
-conferir("pessoa física com segundo livro: 409 (RN26)", segundaPF.status === 409 && segundaPF.corpo.mensagem.includes("RN26"), segundaPF.corpo)
+conferir("pessoa física com segundo livro: 409 (RN26)", segundaPF.status === 409 && segundaPF.corpo.mensagem.includes("Pessoa física"), segundaPF.corpo)
 
 const paraEscola = await post("/movimentacoes/doacao", { receptorId: instId, exemplarIds: [ex[1].id, ex[2].id], observacao: "Reforço" })
 conferir("instituição recebe vários", paraEscola.status === 201 && paraEscola.corpo.movimentacao.tombamentos.length === 2, paraEscola.corpo)

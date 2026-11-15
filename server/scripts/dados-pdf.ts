@@ -67,7 +67,7 @@ const documentos = [
       "à sombra de uma árvore de arapiraca, onde tropeiros e agricultores",
       "descansavam no caminho entre o sertão e o litoral.",
       "",
-      "Este arquivo substitui o manuseio físico da obra original (RN04).",
+      "Este arquivo substitui o manuseio físico da obra original.",
     ]),
   },
   {

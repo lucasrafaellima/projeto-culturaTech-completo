@@ -157,7 +157,7 @@ function validarLivro(corpo: Record<string, unknown>): DadosLivro {
   }
   if (autores.some((n) => n.length > 150)) throw new ErroRegra(400, "Nome de autor muito longo (máximo de 150 caracteres).")
   if (new Set(autores.map(normalizar)).size !== autores.length) {
-    throw new ErroRegra(400, "O mesmo autor foi informado mais de uma vez para a obra (RN19).")
+    throw new ErroRegra(400, "O mesmo autor foi informado mais de uma vez para a obra.")
   }
 
   const editora = texto(corpo.editora)
@@ -177,7 +177,7 @@ function validarLivro(corpo: Record<string, unknown>): DadosLivro {
   if (!CATEGORIAS.includes(categoria)) throw new ErroRegra(400, "Categoria inválida.")
 
   const secao = texto(corpo.secao).toUpperCase()
-  if (!/^[A-Z]$/.test(secao)) throw new ErroRegra(400, "A seção deve ser uma letra de A a Z (RN22).")
+  if (!/^[A-Z]$/.test(secao)) throw new ErroRegra(400, "A seção deve ser uma letra de A a Z.")
 
   const isbn = texto(corpo.isbn)
   if (!isbnValido(isbn) || isbn.length > 17) {
@@ -255,7 +255,7 @@ export function validarTombamentos(brutos: unknown): string[] {
 export async function gravarExemplares(c: pg.PoolClient, livroId: string, lista: string[], localizacao: string | null = null) {
   const livro = await c.query("SELECT 1 FROM livro WHERE id = $1", [livroId])
   if (livro.rowCount === 0) {
-    throw new ErroRegra(404, "Não é possível cadastrar o exemplar: a obra não está cadastrada (RN16).")
+    throw new ErroRegra(404, "Não é possível cadastrar o exemplar: a obra não está cadastrada.")
   }
   const emUso = await c.query<{ tombamento: string }>(
     "SELECT tombamento FROM exemplar WHERE upper(tombamento) = ANY($1::text[]) LIMIT 1",
@@ -365,7 +365,7 @@ rotasAcervo.get("/livros/:id", async (req, res) => {
 // POST /api/livros
 rotasAcervo.post("/livros", async (req, res) => {
   const livro = await salvarLivro(validarLivro(corpoDe(req)))
-  res.status(201).json({ ok: true, mensagem: "Obra cadastrada. Agora cadastre os exemplares (RN16).", livro })
+  res.status(201).json({ ok: true, mensagem: "Obra cadastrada. Agora cadastre os exemplares.", livro })
 })
 
 // POST /api/livros/importar  { "obras": [{ ...obra, "tombamentos": [...], "linha"?: 2 }] }
@@ -443,7 +443,7 @@ rotasAcervo.delete("/livros/:id", async (req, res) => {
 
 // POST /api/livros/:id/exemplares  { "tombamentos": ["BMA-0001", ...], "localizacao"?: "Estante 3" }
 rotasAcervo.post("/livros/:id/exemplares", async (req, res) => {
-  const livroId = idDe(req, "Não é possível cadastrar o exemplar: a obra não está cadastrada (RN16).")
+  const livroId = idDe(req, "Não é possível cadastrar o exemplar: a obra não está cadastrada.")
   const corpo = corpoDe(req)
   const lista = validarTombamentos(corpo.tombamentos)
   const localizacao = validarLocalizacao(corpo.localizacao)
@@ -548,12 +548,12 @@ rotasAcervo.post("/exemplares/:id/desbaste", async (req, res) => {
     if (!STATUS_DESBASTAVEIS.includes(ex.status)) {
       throw new ErroRegra(
         409,
-        `Somente exemplares ociosos ou danificados podem ser desbastados (RN31). Status atual: ${labelStatus[ex.status]}.`,
+        `Somente exemplares ociosos ou danificados podem ser desbastados. Status atual: ${labelStatus[ex.status]}.`,
       )
     }
     // RN24: relatório justificando a decisão
     if (relatorio.length < MIN_RELATORIO) {
-      throw new ErroRegra(400, `Anexe o relatório justificando o desbastamento (mínimo ${MIN_RELATORIO} caracteres) (RN24).`)
+      throw new ErroRegra(400, `Anexe o relatório justificando o desbastamento (mínimo ${MIN_RELATORIO} caracteres).`)
     }
     const d = await c.query<{ id: string; data: string }>(
       `INSERT INTO desbaste (exemplar_id, admin_id, status_anterior, relatorio)
