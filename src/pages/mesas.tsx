@@ -373,8 +373,9 @@ export function MesasPage() {
               const destino = situacao === "nao_compareceu" ? destinoDaVaga(store, a) : null
               const ehKids = espacoDoAgendamento(store, a) === "kids"
               return (
-                <div key={a.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                <div key={a.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 p-4">
+                  {/* o texto ocupa a sobra; sem 18rem livres, os botões descem para a linha de baixo */}
+                  <div className="min-w-0 flex-1 basis-72 space-y-0.5">
                     <p className="flex flex-wrap items-center gap-2 font-medium">
                       {nomeMesa(a.mesaId)} · {labelTurno[a.turno]}
                       {ehKids && <Badge className="bg-accent/15 text-accent">Espaço Kids</Badge>}
@@ -386,10 +387,12 @@ export function MesasPage() {
                       <p className="text-sm">
                         Criança: {a.crianca.nome}
                         {a.crianca.cpf && (
-                          <span className="text-muted-foreground">
+                          <>
                             {" "}
-                            · CPF {mascararCpf(a.crianca.cpf)} · {idade(a.crianca.dataNascimento, a.data)} anos
-                          </span>
+                            <span className="whitespace-nowrap text-muted-foreground">
+                              · CPF {mascararCpf(a.crianca.cpf)} · {idade(a.crianca.dataNascimento, a.data)} anos
+                            </span>
+                          </>
                         )}
                       </p>
                     )}
@@ -418,7 +421,7 @@ export function MesasPage() {
                       </p>
                     )}
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 flex-wrap gap-1">
                     {ehAdmin && aguardandoUso && (
                       <Button variante="success" tamanho="sm" onClick={() => executar(() => confirmarUso(a.id))}>
                         <CheckCircle2 className="h-4 w-4" /> Confirmar uso

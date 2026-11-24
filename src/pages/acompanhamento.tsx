@@ -224,8 +224,8 @@ export function AcompanhamentoPage() {
             const kids = espacoDoAgendamento(store, a) === "kids"
             const podeConfirmar = a.data === hoje && (situacao === "agendado" || situacao === "aguardando_uso")
             return (
-              <li key={a.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 space-y-0.5">
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 p-4">
+                <div className="min-w-0 flex-1 basis-72 space-y-0.5">
                   <p className="flex flex-wrap items-center gap-2 font-medium">
                     {nomeMesa(a.mesaId)}
                     {kids && <Badge className="bg-accent/15 text-accent">Espaço Kids</Badge>}
